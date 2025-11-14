@@ -1,0 +1,12 @@
+{
+  "name": "OLID",
+  "description": "Offensive Language Identification Dataset",
+  "splits": {
+    "train": 5214,
+    "test": 1738
+  },
+  "label_mapping": {
+    "0": "non-offensive",
+    "1": "offensive"
+  }
+}

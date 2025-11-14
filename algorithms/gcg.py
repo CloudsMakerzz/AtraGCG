@@ -6,6 +6,7 @@ import utils.attack_utility as attack_utility
 import random
 import utils.experiment_logger as experiment_logger
 import gc
+from algorithms.losses_experimental import DynamicClippedSensitivities
 
 
 GCG_LOSS_FUNCTION = attack_utility.UNREDUCED_CE_LOSS
@@ -212,7 +213,13 @@ def custom_gcg(
         logprobs = target_logprobs(model, tokenizer, torch.unsqueeze(current_best_tokens, 0), masks_data, input_tokens[target_mask], logger)
         logprobs = logprobs.item()
         logprobs_chunk.append(logprobs)
-        logprobs_sequences.append(logprobs)        
+        logprobs_sequences.append(logprobs)
+        
+        # 清理内存
+        del substitution_data
+        del true_losses
+        gc.collect()
+        torch.cuda.empty_cache()        
         if eval_every_step:
             generated_output_tokens = model.generate(torch.unsqueeze(current_best_tokens[eval_input_mask], dim=0).to(model.device), attention_mask=torch.unsqueeze(torch.ones(current_best_tokens[eval_input_mask].shape), dim=0).to(model.device), **generation_config)
             generated_output_string = tokenizer.batch_decode(generated_output_tokens[:, eval_input_mask[-1] + 1 :])[0]
@@ -298,8 +305,10 @@ def DEFAULT_GCG_RANDOMNESS_STRATEGY(tokenizer, best_tokens_indices, input_tokeni
     indices_to_sample = set()
     indices_to_exclude = set()
 
-    while len(indices_to_sample) < max_candidate_size:
+    while len(indices_to_sample) < max_candidate_size:# 512
+        # 随机生成行索引
         first_coordinate = torch.randint(0, best_tokens_indices.shape[0], (1,)).to(torch.int32).item()
+        # 随机生成列索引
         second_coordinate = torch.randint(0, best_tokens_indices.shape[1], (1,)).to(torch.int32).item()
         if (first_coordinate, second_coordinate) in indices_to_sample:
             continue
@@ -326,7 +335,7 @@ def DEFAULT_GCG_RANDOMNESS_STRATEGY(tokenizer, best_tokens_indices, input_tokeni
             continue
         else:
             indices_to_sample.add((first_coordinate, second_coordinate))
-    
+
     candidates_list = []
     for input_tokenized_data in input_tokenized_data_list:
         input_new_candidates = []
@@ -337,7 +346,6 @@ def DEFAULT_GCG_RANDOMNESS_STRATEGY(tokenizer, best_tokens_indices, input_tokeni
             random_substitution_make[optim_mask[index_to_sample[0]]] = best_tokens_indices[(index_to_sample[0], index_to_sample[1])]
             input_new_candidates.append(random_substitution_make)
         candidates_list.append(torch.stack(input_new_candidates))
-    
     return candidates_list
 
 def DEFAULT_ON_STEP(*args, **kwargs):
@@ -349,6 +357,8 @@ def weakly_universal_gcg(
     tokenizer: transformers.AutoTokenizer,
     input_tokenized_data_list: typing.List[typing.Dict],
     universal_gcg_hyperparameters: typing.Dict,
+    target_output_str: str,
+    dataset_name:str,
     logger: experiment_logger.ExperimentLogger,
     *,
     eval_initial,
@@ -358,14 +368,13 @@ def weakly_universal_gcg(
 ):
     logger.log(input_tokenized_data_list)
 
-    if to_cache_logits:
+    if to_cache_logits:# true
         average_target_logprobs = attack_utility.CachedAverageLogprobs()
     else:
         raise ValueError(f"Just cache ffs. Or write your own implementation.")
 
-    if to_cache_attentions:
+    if to_cache_attentions:# true
         att_cacher = None
-        # att_cacher = attack_utility.CachedAverageBulkForward()
     else:
         raise ValueError(f"Just cache ffs. Or write your own implementation.")
     
@@ -390,7 +399,9 @@ def weakly_universal_gcg(
 
     masks_data_list = [x["masks"] for x in input_tokenized_data_list]
 
-    if eval_initial:
+    
+
+    if eval_initial:# false
         initial_true_loss = true_loss_function(models, tokenizer, [torch.unsqueeze(x["tokens"], 0) for x in input_tokenized_data_list], masks_data_list, logger, **true_loss_kwargs)
         logger.log(initial_true_loss, step_num=-1)
         initial_average_logprobs = average_target_logprobs(models, tokenizer, [torch.unsqueeze(x["tokens"], 0) for x in input_tokenized_data_list], masks_data_list, logger)
@@ -404,44 +415,256 @@ def weakly_universal_gcg(
     current_best_true_loss_chunk = []
     logprobs_chunk = []
 
+    prefix_suffix_attention_list = []
+    payload_attention_list = []
+    other_attention_list = []
 
+    
     current_input_tokenized_data_list = input_tokenized_data_list
-    for step_num in range(universal_gcg_hyperparameters["max_steps"]):
 
+    for step_num in range(universal_gcg_hyperparameters["max_steps"]):
+        print("第",step_num,"次迭代")
+
+        # 计算敏感度
+        # DynamicClippedSensitivities.reset_sensitivities
         step_begin_state = on_step_begin(models, tokenizer, current_input_tokenized_data_list, universal_gcg_hyperparameters, logger, step_num=step_num, **on_step_begin_kwargs)
 
+        # 返回最优的topk个token的索引
+        # average_attention_loss_signal
         best_tokens_indices = signal_function(models, tokenizer, current_input_tokenized_data_list, universal_gcg_hyperparameters["topk"], logger, step_num=step_num, **(signal_kwargs or {}))
+
+        # 为所有样本在opt_masks下替换一个token 返回最新的前后缀
+        # DEFAULT_GCG_RANDOMNESS_STRATEGY
         forward_eval_candidates = randomness_strategy(tokenizer, best_tokens_indices, current_input_tokenized_data_list, substitution_validity_function, universal_gcg_hyperparameters["forward_eval_candidates"])
+
+        # print("forward_eval_candidates",forward_eval_candidates)
+        # print(step_num,"已返回替换后一个token的样本")
+
+        # 返回所有样本的平均注意力损失
+        # CachedAttentionLoss
         true_losses = true_loss_function(models, tokenizer, forward_eval_candidates, masks_data_list, logger, step_num=step_num, **(true_loss_kwargs or {}))
+        # print(f"Step {step_num}, Losses: {true_losses}")
+        # print(step_num,"已返回所有样本的平均注意力loss")
+
+
+
         true_losses_chunk.append(true_losses)
         best_idx = torch.argmin(true_losses)
+
         best_loss = true_losses[best_idx]
         current_best_true_loss_chunk.append(best_loss)
+        
+        print("best_loss:",best_loss)
+
+        results = []
+
+        # 获得优化的样本 并变成[{}]形式 作为上下文的输入
+        for i in range(6):
+            # 获取解码后的文本
+            text = tokenizer.decode(forward_eval_candidates[i][best_idx], skip_special_tokens=True)
+
+            text = text.split(target_output_str)[0]
+            text = text.replace('\n', '').strip(' ')
+            # 将文本和标签组合成元组，并添加到结果列表
+            results.append((f'"{text}"', target_output_str))
+        # 将结果列表格式化为字符串并打印
+        formatted_result = results
+        print("第",step_num,"次迭代的优化样本为：\n",formatted_result)
+        
+#======================
+        # 初始化用于存储所有样本注意力总和的变量
+        total_prefix_suffix_attention = 0
+        total_payload_attention = 0
+        total_other_attention = 0
+        sample_count = 0
+
+        # 提前获取公共信息（避免循环内重复计算）
+        device = models[0].device
+        L = models[0].config.num_hidden_layers
+        H = models[0].config.num_attention_heads
+
+        # sensitivity_calculator = DynamicClippedSensitivities()
+
+        # current_sensitivities = sensitivity_calculator(models[0], tokenizer, current_input_tokenized_data_list[0]["tokens"], current_input_tokenized_data_list[0]["masks"],logger,step_num = 1)
+
+        # current_sensitivities = current_sensitivities[:, 0, :, 0]
+        # print("GCG中取到的敏感度",current_sensitivities)
+        
+        for sample_idx in range(len(forward_eval_candidates)):
+        # 1. 准备输入和运行模型
+            input_ids = forward_eval_candidates[sample_idx][best_idx].unsqueeze(0).to(models[0].device)
+            # print("input_ids",tokenizer.batch_decode(input_ids, skip_special_tokens=True))
+            with torch.no_grad():
+                outputs = models[0](
+                    input_ids,
+                    output_attentions=True
+                )
+            attn_stack = torch.stack(outputs.attentions)
+            # print(attn_stack)
+
+            # 2. 从索引动态重建长度正确的掩码 (核心改动)
+            sequence_length = input_ids.shape[1]
+            current_masks = masks_data_list[sample_idx]
+
+             # 创建与序列等长的、全为False的基础掩码
+            prefix_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
+            suffix_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
+            payload_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
+            target_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
+
+            # 从current_masks加载索引 (假设里面存的是索引)
+            prefix_indices = current_masks["prefix_mask"].to(device)
+            suffix_indices = current_masks["suffix_mask"].to(device)
+            payload_indices = current_masks["payload_mask"].to(device)
+            target_indices = current_masks["target_mask"].to(device)
+            
+            prefix_mask[prefix_indices] = True
+            suffix_mask[suffix_indices] = True
+            payload_mask[payload_indices] = True
+            target_mask[target_indices] = True
+
+            # 使用索引在基础掩码的对应位置上填充True
+            pre_suf_mask = prefix_mask | suffix_mask
+            pre_payload_suf_mask = pre_suf_mask | payload_mask
+            other_mask = ~pre_payload_suf_mask
+
+            # 4. 找到分析的目标位置 (Payload的下一个词)
+            if payload_indices.numel()> 0:
+
+                prefix_suffix_attention = calculate_attention_on_important_heads("前后缀", pre_suf_mask, attn_stack, target_indices)
+                payload_attention = calculate_attention_on_important_heads("Payload", payload_mask, attn_stack, target_indices)
+                other_attention = calculate_attention_on_important_heads("其他文本", other_mask, attn_stack, target_indices)
+                # print("prefix_suffix_attention",prefix_suffix_attention)
+                # 累加所有样本的注意力值
+                total_prefix_suffix_attention += prefix_suffix_attention
+                # print("total_prefix_suffix_attention",total_prefix_suffix_attention)
+                total_payload_attention += payload_attention
+                total_other_attention += other_attention
+                sample_count += 1
+            else:
+                    print("未能找到 Payload。")
+
+        if sample_count > 0:
+
+            avg_prefix_suffix_attention = total_prefix_suffix_attention / sample_count
+            avg_payload_attention = total_payload_attention / sample_count
+            avg_other_attention = total_other_attention / sample_count
+            
+            # 将平均注意力值添加到列表中
+            prefix_suffix_attention_list.append(avg_prefix_suffix_attention)
+            payload_attention_list.append(avg_payload_attention)
+            other_attention_list.append(avg_other_attention)
+        print(f"所有样本的平均注意力值 - 前后缀: {avg_prefix_suffix_attention}, Payload: {avg_payload_attention}, 其他: {avg_other_attention}")
+#======================
+        prefix_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["prefix_mask"]]
+        payload_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["payload_mask"]]
+        suffix_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["suffix_mask"]]
+        target_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["target_mask"]]    
+
+        
+        # payload_string = tokenizer.decode(
+        #     payload_tokens, skip_special_tokens=True
+        # )
+        # print("payload:",payload_string)
+
+        # prefix_string = tokenizer.decode(
+        #     prefix_tokens, skip_special_tokens=True
+        # )
+        # print("prefix:",prefix_string)
+
+        # suffix_string = tokenizer.decode(
+        #     suffix_tokens, skip_special_tokens=True
+        # )
+        # print("suffix:",suffix_string)
+
+        # target_string= tokenizer.decode(
+        #     target_tokens, skip_special_tokens=True
+        # )
+        # print("taget:",target_string)
+
         best_tokens_dict = {
-            "prefix_tokens": forward_eval_candidates[0][best_idx][masks_data_list[0]["prefix_mask"]],
-            "suffix_tokens": forward_eval_candidates[0][best_idx][masks_data_list[0]["suffix_mask"]]
+            "prefix_tokens": prefix_tokens,
+            "suffix_tokens": suffix_tokens
         }
+
+        # print("目前最好的前后缀",best_tokens_dict)
+
         best_tokens_dicts_chunk.append(best_tokens_dict)
         best_tokens_dicts_list.append(best_tokens_dict)
-        average_logprobs = average_target_logprobs(models, tokenizer, [torch.unsqueeze(x[best_idx], 0) for x in forward_eval_candidates], masks_data_list, logger)
-        logprobs_chunk.append(average_logprobs.item())
-        average_logprobs_list.append(average_logprobs.item())
+
+        # 拼接成一个 tensor
+        # full_tokens = torch.cat([prefix_tokens, payload_tokens, suffix_tokens], dim=0)
+
+        asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,100,[1],dataset_name,True,logger)
+
+        logprobs_chunk.append(asr)
+        average_logprobs_list.append(asr)
+        
+        
+        # 将当前最佳替换 token 应用到当前输入列表，更新为下一步的输入。
         current_input_tokenized_data_list = attack_utility.update_all_tokens(best_tokens_dict, current_input_tokenized_data_list)
 
-        if (step_num + 1) % 10 == 0:
-            logger.log(true_losses_chunk, step_num=step_num)
-            logger.log(current_best_true_loss_chunk, step_num=step_num)
-            logger.log(best_tokens_dicts_chunk, step_num=step_num)
-            logger.log(logprobs_chunk, step_num=step_num)
+        # 清理内存
+        # del forward_eval_candidates
+        # del true_losses
+        # del best_tokens_indices
+        # gc.collect()
+        # torch.cuda.empty_cache()
 
-            true_losses_chunk = []
-            current_best_true_loss_chunk = []
-            logprobs_chunk = []
-            best_tokens_dicts_chunk = []
+        # if (step_num + 1) % 10 == 0:#10
+        #     logger.log(true_losses_chunk, step_num=step_num)
+        #     logger.log(current_best_true_loss_chunk, step_num=step_num)
+        #     logger.log(best_tokens_dicts_chunk, step_num=step_num)
+        #     logger.log(logprobs_chunk, step_num=step_num)
+
+        #     logger.log(prefix_suffix_attention_list, step_num=step_num)
+        #     logger.log(payload_attention_list, step_num=step_num)
+        #     logger.log(other_attention_list, step_num=step_num)
+
+        #     true_losses_chunk = []
+        #     current_best_true_loss_chunk = []
+        #     logprobs_chunk = []
+        #     best_tokens_dicts_chunk = []
+
+        #     prefix_suffix_attention_list=[]
+        #     payload_attention_list=[]
+        #     other_attention_list=[]
         
         step_end_state = on_step_end(models, tokenizer, current_input_tokenized_data_list, universal_gcg_hyperparameters, logger, step_num=step_num, **on_step_end_kwargs)
 
         gc.collect()
         torch.cuda.empty_cache()
+        
+        logger.log(true_losses_chunk, step_num=step_num)
+        logger.log(current_best_true_loss_chunk, step_num=step_num)
+        logger.log(best_tokens_dicts_chunk, step_num=step_num)
+        logger.log(logprobs_chunk, step_num=step_num)
+
+        logger.log(prefix_suffix_attention_list, step_num=step_num)
+        logger.log(payload_attention_list, step_num=step_num)
+        logger.log(other_attention_list, step_num=step_num)
 
     return best_tokens_dicts_list, average_logprobs_list
+
+
+def calculate_attention_on_important_heads(source_name, source_mask, full_attention_stack, target_mask):
+    # 统一按“一维索引数组”处理 source_mask 与 target_mask
+    # 取 batch 0: [L, H, S, S]
+    all_layers_attention = full_attention_stack[:, 0, :, :, :]
+
+    device = all_layers_attention.device
+
+
+    # 切片并聚合 -> per_head_map: [L, H]
+    attention_slice = all_layers_attention[:, :, target_mask - 1, :][:, :, :, source_mask]  # [L, H, T, K]
+    # print("attention_slice",attention_slice)
+    per_head_map = attention_slice.sum(dim=(-1, -2))
+    # print("per_head_map",per_head_map)
+    total_value = per_head_map.sum().item()
+
+    # print("展开后的敏感度：",flat_sens)
+    # print("展开后的头注意力：",flat_per_head)
+    # print("加权后的：",weighted)
+    # print("汇总后：",total_value)
+
+    return total_value

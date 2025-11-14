@@ -12,7 +12,5 @@ hf_transfer
 bitsandbytes
 fschat
 sentencepiece
-agentdojo[transformers]
-gpt-oss[torch]
 matplotlib
 seaborn

@@ -21,7 +21,7 @@ OTHER_DELM_FOR_TEST = 2
 DELIMITERS = {
     "TextTextText": [TEXTUAL_DELM_TOKENS[3] + ' ' + TEXTUAL_DELM_TOKENS[0] + TEXTUAL_DELM_TOKENS[4],
                      TEXTUAL_DELM_TOKENS[3] + ' ' + TEXTUAL_DELM_TOKENS[1] + TEXTUAL_DELM_TOKENS[4],
-                     TEXTUAL_DELM_TOKENS[3] + ' ' + TEXTUAL_DELM_TOKENS[2] + TEXTUAL_DELM_TOKENS[4]],
+                     TEXTUAL_DELM_TOKENS[3] + ' ' + TEXTUAL_DELM_TOKENS[2] + TEXTUAL_DELM_TOKENS[4]],    
     "TextSpclText": [TEXTUAL_DELM_TOKENS[3] + ' ' + SPECIAL_DELM_TOKENS[0] + TEXTUAL_DELM_TOKENS[4],
                      TEXTUAL_DELM_TOKENS[3] + ' ' + SPECIAL_DELM_TOKENS[1] + TEXTUAL_DELM_TOKENS[4],
                      TEXTUAL_DELM_TOKENS[3] + ' ' + SPECIAL_DELM_TOKENS[2] + TEXTUAL_DELM_TOKENS[4]],
@@ -41,9 +41,16 @@ DELIMITERS = {
         ['<|begin_of_text|><|start_header_id|>system<|end_header_id|>', 
             '<|eot_id|><|start_header_id|>user<|end_header_id|>', 
             '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'],
+
+     # 新增 OPT 系列
+    "opt-1.3b": ['<s> ', '', ' </s>'],
+    "opt-2.7b": ['<s> ', '', ' </s>'],
+    "opt-6.7b": ['<s> ', '', ' </s>'],
+    "opt-13b": ['<s> ', '', ' </s>']
+    
     }
 
-SYS_INPUT = "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n"
+SYS_INPUT = ""#Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n
 SYS_NO_INPUT = SYS_INPUT.replace(", paired with an input that provides further context", "")
 
 PROMPT_FORMAT = {}

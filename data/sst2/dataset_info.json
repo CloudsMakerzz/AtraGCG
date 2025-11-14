@@ -1,0 +1,12 @@
+{
+  "name": "SetFit/sst2",
+  "description": "SST-2 dataset processed for sentiment analysis",
+  "splits": {
+    "train": 6920,
+    "test": 1821
+  },
+  "label_mapping": {
+    "0": "negative",
+    "1": "positive"
+  }
+}

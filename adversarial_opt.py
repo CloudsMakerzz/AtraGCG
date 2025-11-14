@@ -151,6 +151,7 @@ def altogether_adversarial_opt(
     input_tokenized_data_list: typing.List[typing.Dict],
     target_output_str: str,
     adversarial_parameters_dict: typing.Dict,
+    dataset_name:str,
     logger: experiment_logger.ExperimentLogger,    
 ):
     attack_algorithm = adversarial_parameters_dict.get("attack_algorithm", "universal_gcg")
@@ -161,16 +162,20 @@ def altogether_adversarial_opt(
         eval_initial = adversarial_parameters_dict.get("eval_initial", True)
         to_cache_logits = adversarial_parameters_dict.get("to_cache_logits", True)
         to_cache_attentions = adversarial_parameters_dict.get("to_cache_attentions", True)
+        
 
         best_tokens_dicts_list, average_logprobs_list = gcg.weakly_universal_gcg(models,
             tokenizer,
             input_tokenized_data_list,
             adversarial_parameters_dict["attack_hyperparameters"],
+            target_output_str,
+            dataset_name,
             logger,
             generation_config=generation_config,
             eval_initial=eval_initial,
             to_cache_logits=to_cache_logits,
             to_cache_attentions=to_cache_attentions
+            
         )
         
         logger.log(best_tokens_dicts_list)
@@ -218,15 +223,14 @@ def altogether_adversarial_opt(
                 input_tokenized_data_list,
                 target_output_str,
                 attack_config,
+                dataset_name,
                 logger
             )
 
             logger.log(best_tokens_dicts_list)
             logger.log(average_logprobs_list)
-
             all_best_tokens_dicts_list.extend(best_tokens_dicts_list)
             all_average_logprobs_list.extend(average_logprobs_list)
-
             del average_logprobs_list, best_tokens_dicts_list
             gc.collect()
             torch.cuda.empty_cache()
@@ -247,6 +251,7 @@ def weak_universal_adversarial_opt(
     input_templates: typing.List[str | typing.List[typing.Dict[str, str]]],
     target_output_str: str,
     adversarial_parameters_dict: typing.Dict,
+    dataset_name:str,
     logger: experiment_logger.ExperimentLogger,
 ):
         
@@ -313,9 +318,13 @@ def weak_universal_adversarial_opt(
             if increasing_index_size == 0:
                 continue
             increasing_input_tokenized_data_list = input_tokenized_data_list[:increasing_index_size]
+
+            print("训练样本一共",len(increasing_input_tokenized_data_list),"个")
+
             smaller_adversarial_parameters_dict = adversarial_parameters_dict["per_incremental_step"]
             smaller_adversarial_parameters_dict["input_tokenized_data_list"] = increasing_input_tokenized_data_list
-            best_tokens_dicts_list, average_logprobs_list = weak_universal_adversarial_opt(models, tokenizer, None, target_output_str, smaller_adversarial_parameters_dict, logger)
+            # 计算出一个批次的攻击结果
+            best_tokens_dicts_list, average_logprobs_list = weak_universal_adversarial_opt(models, tokenizer, None, target_output_str, smaller_adversarial_parameters_dict,dataset_name, logger)
             logger.log(best_tokens_dicts_list, increasing_index_size=increasing_index_size)
             logger.log(average_logprobs_list, increasing_index_size=increasing_index_size)
             
@@ -323,15 +332,16 @@ def weak_universal_adversarial_opt(
             all_logprobs_lists.extend(average_logprobs_list)
 
             input_tokenized_data_list = attack_utility.update_all_tokens(best_tokens_dicts_list[-1], input_tokenized_data_list)
+            # print("weak_universal_adversarial_opt一个批次ok")
         
         logger.log(all_tokens_sequences)
         logger.log(all_logprobs_lists)
         return all_tokens_sequences, all_logprobs_lists
     
     elif attack_type == "altogether":
-        best_tokens_dicts_list, average_logprobs_list = altogether_adversarial_opt(models, tokenizer, input_tokenized_data_list, target_output_str, adversarial_parameters_dict, logger)
+        best_tokens_dicts_list, average_logprobs_list = altogether_adversarial_opt(models, tokenizer, input_tokenized_data_list, target_output_str, adversarial_parameters_dict, dataset_name,logger)
         logger.log(best_tokens_dicts_list)
         logger.log(average_logprobs_list)
         return best_tokens_dicts_list, average_logprobs_list
     else:
-        raise ValueError(f"Only \"incremental\" and \"altogether\" are supported as of now.")
+        raise ValueError(f"现在只支持 \"incremental\" and \"altogether\" 两种攻击类型.")

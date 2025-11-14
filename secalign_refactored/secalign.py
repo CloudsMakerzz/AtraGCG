@@ -39,12 +39,13 @@ def load_model_and_tokenizer(model_path, tokenizer_path=None, device="cuda:0", *
         transformers.AutoModelForCausalLM.from_pretrained(
             model_path, trust_remote_code=True, **kwargs
         )
-        .to(device)
+        # .to(device)
         .eval()
     )
     tokenizer_path = model_path if tokenizer_path is None else tokenizer_path
     tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
+    # 针对特定模型做 tokenizer 调整
     if "oasst-sft-6-llama-30b" in tokenizer_path:
         tokenizer.bos_token_id = 1
         tokenizer.unk_token_id = 0
@@ -73,6 +74,8 @@ def _form_chat_template_from_frontend_delimiters(frontend_delimiters):
 
 def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
     configs = model_name_or_path.split('/')[-1].split('_') + ['Frontend-Delimiter-Placeholder', 'None']
+    # 一般模型命名为 基座模型名_对齐方式标记_其他说明
+    # 如：llama2_dpo_instruct
     for alignment in ['dpo', 'kto', 'orpo']:
         base_model_index = model_name_or_path.find(alignment) - 1
         if base_model_index > 0: break
@@ -82,6 +85,9 @@ def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
     frontend_delimiters = configs[1] if configs[1] in config.DELIMITERS else base_model_path.split('/')[-1]
     training_attacks = configs[2]
     if not load_model: return base_model_path, None, frontend_delimiters, None
+
+    print("模型地址为", base_model_path)
+
     model, tokenizer = load_model_and_tokenizer(base_model_path, low_cpu_mem_usage=True, use_cache=False, device="cuda:" + device, **kwargs)
     
     try:
@@ -96,6 +102,7 @@ def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
             }
         ])
     except Exception:
+        print("缺少默认的 chat 模板")
         tokenizer.chat_template = _form_chat_template_from_frontend_delimiters(frontend_delimiters)
         _ = tokenizer.apply_chat_template([
             {
@@ -115,13 +122,37 @@ def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
 
 
 def maybe_load_secalign_defended_model(model_name, defence, **kwargs):
+    
     if (model_name, defence) in MODEL_REL_PATHS:
         model_path = os.path.join(DEFENDED_MODEL_COMMON_PATH, MODEL_REL_PATHS[(model_name, defence)])
-        return load_lora_model(model_path, **kwargs)
+        return load_lora_model(model_path, **kwargs) 
     else:
-        model = transformers.AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+
+        if "Meta-SecAlign" in model_name:
+            if "8B" in model_name:
+                base_model_name = "secalign_refactored/secalign_models/meta-llama/Llama-3.1-8B-Instruct"
+            else:
+                raise ValueError(f"Meta-SecAlign model {model_name} is not supported")
+            
+            device = str(kwargs.pop("device", "0"))
+            tokenizer = transformers.AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+            load_model = kwargs.pop("load_model", True)
+            if not load_model:
+                return None, tokenizer, None, None
+            base_model = transformers.AutoModelForCausalLM.from_pretrained(base_model_name,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                use_cache=False,
+                device_map="cuda:" + device,
+                **kwargs)
+            model = PeftModel.from_pretrained(base_model, "secalign_refactored/secalign_models/Meta-SecAlign-8B", is_trainable=False)
+            return model, tokenizer, None, None
+
+        model = transformers.AutoModelForCausalLM.from_pretrained(model_name)
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
-        return model, tokenizer, None, None
+        frontend_delimiters = model_name
+        print("加载的模型为",model_name)
+        return model, tokenizer, frontend_delimiters, None
 
 def secalign_filter(token_ids, **kwargs):
 
@@ -164,6 +195,28 @@ def struq_filter(token_ids, **kwargs):
 
     return not (prefix_contains_specs or suffix_contains_specs)
 
+def meta_secalign_filter(token_ids, **kwargs):
+
+    masks_data = kwargs.get("masks_data", None)
+    tokenizer = kwargs.get("tokenizer", None)
+
+    if tokenizer is None:
+        raise ValueError(f"SecAlign filter function needs a tokenizer to be sent through")
+
+    is_invertible = attack_utility.invertibility_filter(token_ids, tokenizer=tokenizer)
+
+    if masks_data is None:
+        decoded_string = tokenizer.decode(token_ids)
+        return not any([spec_token_id in decoded_string for spec_token_id in list(tokenizer.get_added_vocab().keys())])
+    prefix_mask = masks_data["prefix_mask"]
+    suffix_mask = masks_data["suffix_mask"]
+    decoded_prefix = tokenizer.decode(token_ids[prefix_mask])
+    decoded_suffix = tokenizer.decode(token_ids[suffix_mask])
+    prefix_contains_specs = any([spec_token_id in decoded_prefix for spec_token_id in list(tokenizer.get_added_vocab().keys())])
+    suffix_contains_specs = any([spec_token_id in decoded_suffix for spec_token_id in list(tokenizer.get_added_vocab().keys())])
+    
+    return (not (prefix_contains_specs or suffix_contains_specs)) and is_invertible
+
 def _convert_to_secalign_format(
     input_conv,
     prompt_template,
@@ -173,7 +226,8 @@ def _convert_to_secalign_format(
     assert isinstance(input_conv, list) and all([isinstance(conv_part, dict) for conv_part in input_conv])
     inst_str = deepcopy(input_conv[0]["content"])
     data_str = deepcopy(input_conv[1]["content"])
-    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + harmful_inst + " " + attack_utility.ADV_SUFFIX_INDICATOR + " "
+    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + harmful_inst + " " + attack_utility.ADV_SUFFIX_INDICATOR + " " 
     static_string = prompt_template.format_map({"instruction": inst_str, "input": data_str})
+    # print("加入触发器之后的样本：\n",static_string)
     input_conv = tokenizer.batch_decode(tokenizer([static_string])["input_ids"], clean_up_tokenization_spaces=False)[0]
     return input_conv

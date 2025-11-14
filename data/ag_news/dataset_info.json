@@ -1,0 +1,14 @@
+{
+  "name": "AG News",
+  "description": "AG's News Topic Classification Dataset",
+  "splits": {
+    "train": 120000,
+    "test": 7600
+  },
+  "label_mapping": {
+    "0": "World",
+    "1": "Sports",
+    "2": "Business",
+    "3": "Sci/Tech"
+  }
+}
