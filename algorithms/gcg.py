@@ -437,16 +437,9 @@ def weakly_universal_gcg(
         # DEFAULT_GCG_RANDOMNESS_STRATEGY
         forward_eval_candidates = randomness_strategy(tokenizer, best_tokens_indices, current_input_tokenized_data_list, substitution_validity_function, universal_gcg_hyperparameters["forward_eval_candidates"])
 
-        # print("forward_eval_candidates",forward_eval_candidates)
-        # print(step_num,"已返回替换后一个token的样本")
-
         # 返回所有样本的平均注意力损失
         # CachedAttentionLoss
         true_losses = true_loss_function(models, tokenizer, forward_eval_candidates, masks_data_list, logger, step_num=step_num, **(true_loss_kwargs or {}))
-        # print(f"Step {step_num}, Losses: {true_losses}")
-        # print(step_num,"已返回所有样本的平均注意力loss")
-
-
 
         true_losses_chunk.append(true_losses)
         best_idx = torch.argmin(true_losses)
@@ -482,25 +475,16 @@ def weakly_universal_gcg(
         device = models[0].device
         L = models[0].config.num_hidden_layers
         H = models[0].config.num_attention_heads
-
-        # sensitivity_calculator = DynamicClippedSensitivities()
-
-        # current_sensitivities = sensitivity_calculator(models[0], tokenizer, current_input_tokenized_data_list[0]["tokens"], current_input_tokenized_data_list[0]["masks"],logger,step_num = 1)
-
-        # current_sensitivities = current_sensitivities[:, 0, :, 0]
-        # print("GCG中取到的敏感度",current_sensitivities)
         
         for sample_idx in range(len(forward_eval_candidates)):
         # 1. 准备输入和运行模型
             input_ids = forward_eval_candidates[sample_idx][best_idx].unsqueeze(0).to(models[0].device)
-            # print("input_ids",tokenizer.batch_decode(input_ids, skip_special_tokens=True))
             with torch.no_grad():
                 outputs = models[0](
                     input_ids,
                     output_attentions=True
                 )
             attn_stack = torch.stack(outputs.attentions)
-            # print(attn_stack)
 
             # 2. 从索引动态重建长度正确的掩码 (核心改动)
             sequence_length = input_ids.shape[1]
@@ -561,39 +545,13 @@ def weakly_universal_gcg(
         suffix_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["suffix_mask"]]
         target_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["target_mask"]]    
 
-        
-        # payload_string = tokenizer.decode(
-        #     payload_tokens, skip_special_tokens=True
-        # )
-        # print("payload:",payload_string)
-
-        # prefix_string = tokenizer.decode(
-        #     prefix_tokens, skip_special_tokens=True
-        # )
-        # print("prefix:",prefix_string)
-
-        # suffix_string = tokenizer.decode(
-        #     suffix_tokens, skip_special_tokens=True
-        # )
-        # print("suffix:",suffix_string)
-
-        # target_string= tokenizer.decode(
-        #     target_tokens, skip_special_tokens=True
-        # )
-        # print("taget:",target_string)
-
         best_tokens_dict = {
             "prefix_tokens": prefix_tokens,
             "suffix_tokens": suffix_tokens
         }
 
-        # print("目前最好的前后缀",best_tokens_dict)
-
         best_tokens_dicts_chunk.append(best_tokens_dict)
         best_tokens_dicts_list.append(best_tokens_dict)
-
-        # 拼接成一个 tensor
-        # full_tokens = torch.cat([prefix_tokens, payload_tokens, suffix_tokens], dim=0)
 
         asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,100,[1],dataset_name,True,logger)
 
@@ -603,32 +561,6 @@ def weakly_universal_gcg(
         
         # 将当前最佳替换 token 应用到当前输入列表，更新为下一步的输入。
         current_input_tokenized_data_list = attack_utility.update_all_tokens(best_tokens_dict, current_input_tokenized_data_list)
-
-        # 清理内存
-        # del forward_eval_candidates
-        # del true_losses
-        # del best_tokens_indices
-        # gc.collect()
-        # torch.cuda.empty_cache()
-
-        # if (step_num + 1) % 10 == 0:#10
-        #     logger.log(true_losses_chunk, step_num=step_num)
-        #     logger.log(current_best_true_loss_chunk, step_num=step_num)
-        #     logger.log(best_tokens_dicts_chunk, step_num=step_num)
-        #     logger.log(logprobs_chunk, step_num=step_num)
-
-        #     logger.log(prefix_suffix_attention_list, step_num=step_num)
-        #     logger.log(payload_attention_list, step_num=step_num)
-        #     logger.log(other_attention_list, step_num=step_num)
-
-        #     true_losses_chunk = []
-        #     current_best_true_loss_chunk = []
-        #     logprobs_chunk = []
-        #     best_tokens_dicts_chunk = []
-
-        #     prefix_suffix_attention_list=[]
-        #     payload_attention_list=[]
-        #     other_attention_list=[]
         
         step_end_state = on_step_end(models, tokenizer, current_input_tokenized_data_list, universal_gcg_hyperparameters, logger, step_num=step_num, **on_step_end_kwargs)
 
@@ -656,7 +588,7 @@ def calculate_attention_on_important_heads(source_name, source_mask, full_attent
 
 
     # 切片并聚合 -> per_head_map: [L, H]
-    attention_slice = all_layers_attention[:, :, target_mask - 1, :][:, :, :, source_mask]  # [L, H, T, K]
+    attention_slice = all_layers_attention[:, :, -(len(target_mask) + 1):-1, :][:, :, :, source_mask]  # [L, H, T, K]
     # print("attention_slice",attention_slice)
     per_head_map = attention_slice.sum(dim=(-1, -2))
     # print("per_head_map",per_head_map)

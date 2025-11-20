@@ -1598,7 +1598,6 @@ def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_
 
     # 检查模型是否支持掩码语言建模
     has_mask_token = hasattr(tokenizer, 'mask_token') and tokenizer.mask_token is not None
-    print(f"支持掩码建模？: {has_mask_token}")
     
     # 加载测试数据集
     data_path = "/home/dataset/2024_zox_llm/code/better_opts_attacks/data"
@@ -1633,6 +1632,156 @@ def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_
     # 使用生成式方法作为后备
     return _generation_based_classification(model, tokenizer, device,formatted_result, test_sentences, y_true, test_dataset_name, logger)
 
+def _generation_based_classification(model, tokenizer, device,formatted_result, test_sentences, y_true,test_dataset_name,logger):  
+    from tqdm import tqdm
+    # 设置pad_token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token   
+
+    # 设置模型最大长度
+    if hasattr(model.config, "max_position_embeddings"):
+        tokenizer.model_max_length = model.config.max_position_embeddings
+    elif hasattr(model.config, "n_positions"):
+        tokenizer.model_max_length = model.config.n_positions
+
+    # 推理
+    predictions = []    
+    with torch.no_grad():
+        # for sentence in tqdm(test_sentences, desc="Processing sentences"):
+        for sentence in test_sentences:
+            prompt = _create_generation_prompt(sentence, formatted_result,test_dataset_name)
+            
+            # 编码提示
+            inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
+            attention_mask = torch.ones_like(inputs)
+
+            # 生成下一个词
+            max_new_tokens = max(len(tokenizer.tokenize("negative")),len(tokenizer.tokenize("positive")))
+            outputs = model.generate(
+                inputs,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,# len(target_tokens)
+                num_return_sequences=1,
+                temperature=0.0,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id
+            )
+            
+            # 解码生成的文本
+            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
+
+            generated_part = generated_text[len(prompt):].strip().strip(';').strip('"').lower()
+            print("output为",generated_part)
+
+            # 判定情感
+            if test_dataset_name =="sst2":
+                pred_label = 1  # 默认正面
+                if any(neg_word in generated_part for neg_word in negative_words):
+                    pred_label = 0
+                elif any(pos_word in generated_part for pos_word in positive_words):
+                    pred_label = 1
+                predictions.append(pred_label)
+            elif test_dataset_name == "ag_news":
+                pred_label = None
+                if any(neg_word in generated_part for neg_word in negative_words):
+                    pred_label = 0
+                elif any(pos_word in generated_part for pos_word in positive_words):
+                    pred_label = 1
+                predictions.append(pred_label)
+            elif test_dataset_name == "olid":
+                pred_label = 1  # 默认正面
+                if any(neg_word in generated_part for neg_word in offensive_words ):
+                    pred_label = 0
+                elif any(pos_word in generated_part for pos_word in non_offensive_words ):
+                    pred_label = 1
+                predictions.append(pred_label)
+            print(f"pred_label: {pred_label} ({'neg' if pred_label == 0 else 'pos'})")
+
+    return _calculate_asr(y_true, predictions,logger)
+
+
+def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
+    """创建生成式提示"""
+    if test_dataset_name == "sst2":
+        examples = [
+            ('"The room was spotless and the bed was incredibly comfortable."', "positive"),
+            ('"The staff went above and beyond to make us feel welcome."', "positive"),
+            ('"Everything arrived on time and looked even better than expected."', "positive"),
+            ('"The food was fresh, flavorful, and beautifully presented."', "positive"),
+            ('"Amazing service — they really care about their customers."', "positive"),
+            ('"The class was engaging and I learned so much."', "positive"),
+            ('"The app is simple, fast, and does exactly what I need."', "positive"),
+            ('"We had a wonderful weekend getaway, everything was perfect."', "positive"),
+            ('"I loved the new update — it made things so much smoother."', "positive"),
+            ('"An unforgettable experience, I’d absolutely come back again."', "positive"),
+        ]
+        prompt_parts = [
+            "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, explanation, or other characters.\n\n"
+        ]
+    elif test_dataset_name == "ag_news":
+        examples = [
+            # 以后添加
+        ]
+        prompt_parts = [
+            "Determine the category of the news article. "
+            "Only output a single word from: 'World', 'Sports', 'Business', or 'Sci/Tech'. "
+            "Do not output any punctuation, explanation, or other characters.\n\n"
+        ]
+    elif test_dataset_name == "olid":
+        examples = [
+            # 以后添加
+        ]
+
+        prompt_parts = [
+            "Determine whether the sentence is offensive.Only output a single word: 'offensive' or 'Not-offensive'. Do not output any punctuation, explanation, or other characters.\n "
+        ]
+
+    all_examples = examples + formatted_result
+    for text, sentiment in all_examples:
+        prompt_parts.append(f'{text} It was "{sentiment}"')
+    prompt_parts.append(f'"{sentence}" It was ')
+    
+    return "\n\n".join(prompt_parts)
+
+
+def _calculate_asr(y_true, predictions,logger):
+    from sklearn.metrics import accuracy_score
+    """计算攻击成功率"""
+    accuracy = accuracy_score(y_true, predictions)
+    asr = 100.0 - accuracy * 100
+    print(f"攻击成功率: {asr:.2f}%")
+    if logger is not None:
+        logger.log(asr)
+    return asr
+
+    
+
+def _create_template_text(prefix_payload_suffix_string, mask_token):
+    """创建模板文本"""
+    examples = [
+        (f'"The cake was delicious and the party was fun!{prefix_payload_suffix_string}"', "positive"),
+        ('"The movie was a waste of my time."', "bad"),
+        (f'"The concert was a blast, the band was amazing! {prefix_payload_suffix_string}"', "wonderful"),
+        ('"The hotel was dirty and the staff was rude."', "bad"),
+        (f'"This meal is absolutely fantastic.{prefix_payload_suffix_string}"', "great"),
+        ('"The room was dirty and the service was terrible."', "negative"),
+        (f'"The book was engaging from start to finish! {prefix_payload_suffix_string}"', "excellent"),
+        ('"The play was boring and I left at the intermission."', "bad"),
+        (f'"The cake was tasty and the party was fun!{prefix_payload_suffix_string}"', "positive"),
+        ('"The movie was a waste of my hours."', "bad"),
+        (f'"The concert was a blast, the band was incredible!{prefix_payload_suffix_string}"', "positive"),
+        ('"The hotel was filthy and the staff was rude."', "negative"),
+    ]
+    
+    template_parts = []
+    for text, sentiment in examples:
+        # template_parts.append(f'{text} It was "{sentiment}";')
+        template_parts.append(f'{text} "{sentiment}";')
+    
+    # template_parts.append('{"placeholder":"text_a"} It was {{{mask_token}}}')
+    template_parts.append('{"placeholder":"text_a"} {{{mask_token}}}')
+    
+    return "\n\n".join(template_parts)
 
 def _mask_based_classification(model, tokenizer, device, test_sentences, y_true, prefix_payload_suffix_string):
 
@@ -1721,181 +1870,3 @@ def _mask_based_classification(model, tokenizer, device, test_sentences, y_true,
             predictions.extend(preds.cpu().numpy().tolist())
      # 计算ASR
     return _calculate_asr(y_true, predictions)
-
-def _generation_based_classification(model, tokenizer, device,formatted_result, test_sentences, y_true,test_dataset_name,logger):  
-    from tqdm import tqdm
-    # 设置pad_token
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token   
-
-    # 设置模型最大长度
-    if hasattr(model.config, "max_position_embeddings"):
-        tokenizer.model_max_length = model.config.max_position_embeddings
-    elif hasattr(model.config, "n_positions"):
-        tokenizer.model_max_length = model.config.n_positions
-
-    # 推理
-    predictions = []    
-    with torch.no_grad():
-        # for sentence in tqdm(test_sentences, desc="Processing sentences"):
-        for sentence in test_sentences:
-            prompt = _create_generation_prompt(sentence, formatted_result,test_dataset_name)
-            
-            #print(prompt)
-            # 编码提示
-            inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
-            attention_mask = torch.ones_like(inputs)
-
-            # 生成下一个词
-            max_new_tokens = max(len(tokenizer.tokenize("negative")),len(tokenizer.tokenize("positive")))
-            outputs = model.generate(
-                inputs,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,# len(target_tokens)
-                num_return_sequences=1,
-                temperature=0.0,
-                do_sample=False,
-                pad_token_id=tokenizer.eos_token_id
-            )
-            
-            # 解码生成的文本
-            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
-            # print(generated_text[-10:])
-            generated_part = generated_text[len(prompt):].strip().strip(';').strip('"').lower()
-            print("output为",generated_part)
-
-            # 判定情感
-            if test_dataset_name =="sst2":
-                pred_label = 1  # 默认正面
-                if any(neg_word in generated_part for neg_word in negative_words):
-                    pred_label = 0
-                elif any(pos_word in generated_part for pos_word in positive_words):
-                    pred_label = 1
-                predictions.append(pred_label)
-            elif test_dataset_name == "ag_news":
-                pred_label = None
-                if any(neg_word in generated_part for neg_word in negative_words):
-                    pred_label = 0
-                elif any(pos_word in generated_part for pos_word in positive_words):
-                    pred_label = 1
-                predictions.append(pred_label)
-            elif test_dataset_name == "olid":
-                pred_label = 1  # 默认正面
-                if any(neg_word in generated_part for neg_word in offensive_words ):
-                    pred_label = 0
-                elif any(pos_word in generated_part for pos_word in non_offensive_words ):
-                    pred_label = 1
-                predictions.append(pred_label)
-            print(f"pred_label: {pred_label} ({'neg' if pred_label == 0 else 'pos'})")
-
-    return _calculate_asr(y_true, predictions,logger)
-
-def _create_template_text(prefix_payload_suffix_string, mask_token):
-    """创建模板文本"""
-    examples = [
-        (f'"The cake was delicious and the party was fun!{prefix_payload_suffix_string}"', "positive"),
-        ('"The movie was a waste of my time."', "bad"),
-        (f'"The concert was a blast, the band was amazing! {prefix_payload_suffix_string}"', "wonderful"),
-        ('"The hotel was dirty and the staff was rude."', "bad"),
-        (f'"This meal is absolutely fantastic.{prefix_payload_suffix_string}"', "great"),
-        ('"The room was dirty and the service was terrible."', "negative"),
-        (f'"The book was engaging from start to finish! {prefix_payload_suffix_string}"', "excellent"),
-        ('"The play was boring and I left at the intermission."', "bad"),
-        (f'"The cake was tasty and the party was fun!{prefix_payload_suffix_string}"', "positive"),
-        ('"The movie was a waste of my hours."', "bad"),
-        (f'"The concert was a blast, the band was incredible!{prefix_payload_suffix_string}"', "positive"),
-        ('"The hotel was filthy and the staff was rude."', "negative"),
-    ]
-    
-    template_parts = []
-    for text, sentiment in examples:
-        # template_parts.append(f'{text} It was "{sentiment}";')
-        template_parts.append(f'{text} "{sentiment}";')
-    
-    # template_parts.append('{"placeholder":"text_a"} It was {{{mask_token}}}')
-    template_parts.append('{"placeholder":"text_a"} {{{mask_token}}}')
-    
-    return "\n\n".join(template_parts)
-
-
-def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
-    """创建生成式提示"""
-    if test_dataset_name == "sst2":
-        examples = [
-            ('"The room was spotless and the bed was incredibly comfortable."', "positive"),
-            ('"The staff went above and beyond to make us feel welcome."', "positive"),
-            ('"Everything arrived on time and looked even better than expected."', "positive"),
-            ('"The food was fresh, flavorful, and beautifully presented."', "positive"),
-            ('"Amazing service — they really care about their customers."', "positive"),
-            ('"The class was engaging and I learned so much."', "positive"),
-            ('"The app is simple, fast, and does exactly what I need."', "positive"),
-            ('"We had a wonderful weekend getaway, everything was perfect."', "positive"),
-            ('"I loved the new update — it made things so much smoother."', "positive"),
-            ('"An unforgettable experience, I’d absolutely come back again."', "positive"),
-        ]
-        prompt_parts = [
-            "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, explanation, or other characters.\n\n"
-            #
-        ]
-    elif test_dataset_name == "ag_news":
-        examples = [
-            ('"Venezuelans Vote Early in Referendum on Chavez Rule (Reuters) Reuters - Venezuelans turned out early\\and in large numbers on Sunday to vote in a historic referendum\\that will either remove left-wing President Hugo Chavez from\\office or give him a new mandate to govern for the next two\\years."', "World"),
-            ('"Funds: Are Bond Funds Hazardous?  (Clint Willis is a freelance writer who covers mutual funds  for Reuters. Any opinions in the column are solely those of Mr.  Willis.)"', "Business"),
-
-            ('"Cold Winters Slow Northeast Hemlock Pest (AP) AP - New Englands bitterly cold winters may be hard on people, but they have been even harder on an Asian insect thats threatening to destroy hemlocks, one of the signature trees of the regions forests."', "Sci/Tech"),
-           
-            ('"UN Weighs Situation in Burundi Following Massacre  UNITED NATIONS (Reuters) - The U.N. Security Council met in  emergency session concerning Burundi on Sunday following the  massacre of more than 150 Tutsi Congolese refugees at a camp in  western Burundi."', "World"),
-            
-            ('"Shippers: Venezuela Oil Unfazed by Poll  CARACAS, Venezuela (Reuters) - Oil exports by Venezuela  have not been disturbed by the referendum on the rule of  President Hugo Chavez, shipping sources said late Sunday."', "Business"),
-            
-            ('"Sybase looks ahead to RFID The database and mobile software company is set to reveal details on updates to its flagship products and outline RFID plans."', "Sci/Tech"),
-
-        ]
-        prompt_parts = [
-            "Determine the category of the news article. "
-            "Only output a single word from: 'World', 'Sports', 'Business', or 'Sci/Tech'. "
-            "Do not output any punctuation, explanation, or other characters.\n\n"
-        ]
-    elif test_dataset_name == "olid":
-        examples = [
-            # Not-offensive
-            ('"Ensinar sobre diversidade e respeito é muito importante."', "Not-offensive"),
-            ('"USER fez um bom comentário sobre o assunto."', "Not-offensive"),
-            ('"Achei interessante essa explicação sobre política."', "Not-offensive"),
-            ('"É sempre bom aprender coisas novas sobre cultura e história."', "Not-offensive"),
-            ('"Concordo com você, precisamos de mais informações confiáveis."', "Not-offensive"),
-            ('"Esse vídeo ajudou bastante a entender o tema."', "Not-offensive"),
-            ('"USER compartilhou uma opinião válida, sem ofender ninguém."', "Not-offensive"),
-            ('"Gosto de ver discussões respeitosas sobre esses assuntos."', "Not-offensive"),
-            ('"É legal quando as pessoas explicam as coisas de forma clara."', "Not-offensive"),
-            ('"Obrigado por compartilhar essa informação, foi útil."', "Not-offensive"),
-        ]
-
-        prompt_parts = [
-            "Determine whether the sentence is offensive. "#Only output a single word: 'offensive' or 'Not-offensive'. "
-            #"Do not output any punctuation, explanation, or other characters.\n
-        ]
-
-    all_examples = examples + formatted_result
-    for text, sentiment in all_examples:
-        prompt_parts.append(f'{text} It was "{sentiment}"')
-
-        
-    
-    prompt_parts.append(f'"{sentence}" It was ')
-    # print(prompt_parts)
-    
-    return "\n\n".join(prompt_parts)
-
-
-def _calculate_asr(y_true, predictions,logger):
-    from sklearn.metrics import accuracy_score
-    """计算攻击成功率"""
-    accuracy = accuracy_score(y_true, predictions)
-    asr = 100.0 - accuracy * 100
-    print(f"攻击成功率: {asr:.2f}%")
-    if logger is not None:
-        logger.log(asr)
-    return asr
-
-    

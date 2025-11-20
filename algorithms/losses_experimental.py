@@ -425,12 +425,9 @@ def pointwise_sum_of_differences_payload_only(
     logger: experiment_logger.ExperimentLogger,
     *,
     layer_weight_strategy,
-    target_logits,  # 新增参数：提取出的目标 logits
-    true_labels     # 新增参数：对应的真实标签
 ):
     assert true_attentions.shape == ideal_attentions.shape
     payload_mask = masks_data["payload_mask"]
-    target_mask = masks_data["target_mask"]
     true_attentions = true_attentions[:, :, :, :, payload_mask]
     ideal_attentions = ideal_attentions[:, :, :, :, payload_mask]
     divvied_up_losses = ideal_attentions.to(true_attentions.device) - true_attentions
@@ -439,45 +436,6 @@ def pointwise_sum_of_differences_payload_only(
     batch_first_losses = torch.nansum(torch.transpose(divvied_up_losses, 1, 0), dim=-1)
     product = batch_first_att_strategy.to(batch_first_losses.device) * batch_first_losses
     result = product.sum(dim=(1, 2, 3))
-
-    # target_logits = output.logits[:, -(len(target_mask) + 1):-1, :]
-    # print("logits",len(output.logits))
-    # print("token",len(input_points))
-    # true_labels = input_points[target_mask].to(target_logits.device)
-    # loss = torch.nn.CrossEntropyLoss()(target_logits, true_labels)
-    # --- 2. 新增的交叉熵损失计算 ---
-    
-    # 初始化损失函数，reduction='none' 以便我们能按样本处理损失
-    ce_loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
-
-    # 获取
-    # target_logits 的 shape: [batch_size, num_target_tokens, vocab_size]
-    # true_labels 的 shape: [batch_size, num_target_tokens]
-    b, n_t, v = target_logits.shape
-
-    # CrossEntropyLoss 需要的 input shape: (N, C) 即 (batch_size * num_target_tokens, vocab_size)
-    logits_for_loss = target_logits.view(b * n_t, v)
-    
-    # CrossEntropyLoss 需要的 target shape: (N) 即 (batch_size * num_target_tokens)
-    labels_for_loss = true_labels.view(b * n_t)
-    
-    # 计算每个 token 的 CE 损失 (Shape: [batch_size * num_target_tokens])
-    per_token_ce_loss = ce_loss_fn(logits_for_loss, labels_for_loss)
-    
-    # 恢复 shape 为 [batch_size, num_target_tokens]
-    per_token_ce_loss = per_token_ce_loss.view(b, n_t)
-    
-    # 沿着 target_tokens 维度求和，得到每个 batch 样本的总 CE 损失
-    # (Shape: [batch_size])
-    ce_loss = per_token_ce_loss.sum(dim=1)
-    
-    # --- 3. 合并损失 ---
-    # 将注意力损失和交叉熵损失相加
-    result = result + ce_loss
-
-    # result = result + loss
-    lamda = 0.3
-    final_result = result * lamda + result
 
     return result
 
@@ -992,37 +950,15 @@ class DynamicClippedSensitivities:
         current_sensitivities = self.__class__._LOCAL_SENSITIVITIES[(step_num // self.__class__.step_frequency, current_last_key)]
 
         # 选择敏感度前25%的位置 将低于阈值的敏感度置零
-
         if threshold is None:
             threshold = torch.quantile(current_sensitivities.to(torch.float), quantile)
-        final_sensitivities = current_sensitivities.clone()
-
-        #================
-        # print("置0前",final_sensitivities)
-        # print("threshold:", threshold.item())
-        # print("min:", final_sensitivities.min().item())
-        # print("max:", final_sensitivities.max().item())
-        # num_zeros_before = torch.sum(final_sensitivities == 0)
-        # print(f"置0前0的数量: {num_zeros_before.item()}")
-        #================
-        
+        final_sensitivities = current_sensitivities.clone()        
         final_sensitivities[final_sensitivities < threshold] = 0
 
-        #================
-        # print("置0后",final_sensitivities)
-        # num_zeros_after = torch.sum(final_sensitivities == 0)
-        # print(f"置0后0的数量: {num_zeros_after.item()}")
-
-        # # 增加的 0 元素数量
-        # print(f"新增置0元素数量: {(num_zeros_after - num_zeros_before).item()}")
-        #================
         if input_points.dim() == 1:
             input_points = torch.unsqueeze(input_points, dim=0)
         batch_size = input_points.shape[0]
         final_tensor = torch.transpose(torch.unsqueeze(final_sensitivities, dim=0).expand(batch_size, -1, -1).unsqueeze(dim=-1).expand(-1, -1, -1, len(masks_data["target_mask"])), 0, 1)
-        #================
-        # print("扩展之后\n",final_tensor)
-        #================
         return final_tensor
 
 def average_attention_loss_signal(
@@ -1059,12 +995,8 @@ def average_attention_loss_signal(
             # 构造一个均匀、受 payload_mask 限制的“理想注意力张量
             ideal_attentions_tensor = smart_ideal_attentions(model, tokenizer, ideal_attentions, input_points, masks_data, **ideal_attention_kwargs)
 
-            # print("已构造好了理想的注意力张量")
-
             # 返回一个剪枝后的敏感度张量 重点优化关键层
             layer_weight_strategy = smart_layer_weight_strategy(model, tokenizer, layer_weight_strategy, ideal_attentions_tensor, input_points, masks_data, logger, **layer_weight_kwargs)
-
-            # print("已返回剪枝后的敏感度张量")
 
             optim_mask: torch.tensor = masks_data["optim_mask"]
             target_mask: torch.tensor = masks_data["target_mask"]
@@ -1078,36 +1010,11 @@ def average_attention_loss_signal(
             inputs_embeds = torch.unsqueeze(one_hot_tensor.to(embedding_tensor.device) @ embedding_tensor, 0)
 
             model_output = model(inputs_embeds=inputs_embeds, output_attentions=True, return_dict=True)
-             #==============能不能取到真的target
-            # print("target_mask",target_mask)
-            # decoded_text = tokenizer.decode(input_points, skip_special_tokens=True)
-            # print(decoded_text)
-
-            # target_slice= input_points[target_mask]
-
-            # print("对应的 input_ids:", target_slice.tolist())
-            # print("对应的文本:", tokenizer.decode(target_slice, skip_special_tokens=True))
-            #==============
 
             true_attentions = torch.stack([attention[:, :, target_mask - 1, :] for attention in model_output.attentions])
-            # --- [!! 开始] 你需要添加的逻辑 ---
-            
-            # 1. 提取 true_labels (即目标 token 的下一个 token)
-            labels_indices = target_mask
-            
-            # input_points 是 [seq_len], .unsqueeze(0) 添加 batch 维度
-            # 最终 shape: [1, num_target_tokens]
-            batch_true_labels = input_points[labels_indices].unsqueeze(0).to(model.device)
 
-            # 2. 提取 target_logits
-            # model_output.logits 是 [1, seq_len, vocab_size]
-            # 最终 shape: [1, num_target_tokens, vocab_size]
-            batch_target_logits = model_output.logits[:, target_mask - 1, :]
-            
-            # --- [!! 结束] 你需要添加的逻辑 ---
             # 算出样本的payload部分实际和理想的attention差 在按照每层的权重 加权
-            loss_tensor = prob_dist_metric(model, tokenizer, input_points, masks_data, ideal_attentions_tensor, true_attentions, model_output, logger=logger, layer_weight_strategy=layer_weight_strategy,
-                                           target_logits=batch_target_logits,true_labels=batch_true_labels)
+            loss_tensor = prob_dist_metric(model, tokenizer, input_points, masks_data, ideal_attentions_tensor, true_attentions, model_output, logger=logger, layer_weight_strategy=layer_weight_strategy)
             loss_tensor.backward()
 
             one_hot_tensor.detach()
@@ -1134,7 +1041,6 @@ def average_attention_loss_signal(
         device_moved_grad_list.append(grads_list_batch_tensor.to(canonical_device_idx))
     # 选出 top-k 梯度最大的 token 作为最优 token indices
     final_grads = - torch.cat(device_moved_grad_list, dim=0).mean(dim=0)
-    # final_grads = torch.cat(device_moved_grad_list, dim=0).mean(dim=0)
     best_tokens_indices = final_grads.topk(gcg_topk, dim=-1).indices
 
     gc.collect()
@@ -1314,8 +1220,6 @@ class CachedAttentionLoss:
             ideal_attentions_tensor = smart_ideal_attentions(model, tokenizer, ideal_attentions, input_points, masks_data, **ideal_attention_kwargs)
             layer_weight_strategy = smart_layer_weight_strategy(model, tokenizer, layer_weight_strategy, ideal_attentions_tensor, input_points, masks_data, logger, **layer_weight_kwargs)
 
-
-
             loss_tensors_list = []
             target_mask = masks_data["target_mask"]
             num_processed = 0
@@ -1323,26 +1227,8 @@ class CachedAttentionLoss:
             for batch_logits, batch_true_attentions,batch_output in self._single_thread_att_cacher(model, tokenizer, input_points, masks_data, batch_size, cache_object, static_index, logger): 
 
                 true_attentions = torch.stack([attention[:, :, -(len(target_mask) + 1):- 1, :] for attention in batch_true_attentions])
-                print("static_index",static_index)
-                print("current_batch_size",current_batch_size)
-                current_batch_size = true_attentions.shape[1]
-                target_indices_for_logits = [idx - static_index for idx in target_mask]
-                print("static_index",static_index)
-                print("target_indices_for_logits",target_indices_for_logits)
-                batch_target_logits = batch_output.logits[:, target_indices_for_logits, :]
-                labels_indices = [i + 1 for i in target_mask]
-                current_input_points = input_points[num_processed:num_processed + current_batch_size, :]
-                batch_true_labels = current_input_points[:, labels_indices]
-                
-                # true_attentions = torch.stack([attention[:, :, target_mask - 1, :] for attention in batch_true_attentions])
 
-                torch.cuda.synchronize(device=model.device)
-
-                print("num_processed",num_processed)
-                print("true_attentions.shape[1]",true_attentions.shape[1])
-
-                loss_tensor = prob_dist_metric(model, tokenizer, input_points, masks_data, ideal_attentions_tensor[:, num_processed:num_processed + true_attentions.shape[1], ...], true_attentions,batch_output ,logger=logger, layer_weight_strategy=layer_weight_strategy[:, num_processed:num_processed + true_attentions.shape[1], ...],
-                                               target_logits=batch_target_logits,true_labels=batch_true_labels)
+                loss_tensor = prob_dist_metric(model, tokenizer, input_points, masks_data, ideal_attentions_tensor[:, num_processed:num_processed + true_attentions.shape[1], ...], true_attentions,batch_output ,logger=logger, layer_weight_strategy=layer_weight_strategy[:, num_processed:num_processed + true_attentions.shape[1], ...])
 
                 torch.cuda.synchronize(device=model.device)
                 num_processed += true_attentions.shape[1]
@@ -1351,9 +1237,7 @@ class CachedAttentionLoss:
                 gc.collect()
                 torch.cuda.empty_cache()
             final_results_list.append(torch.cat(loss_tensors_list).to("cpu"))
-        
-            # print("final_results_list",len(final_results_list))
-            # print("final_results_list",len(final_results_list[0]))
+
         return final_results_list
 
     def __call__(self,

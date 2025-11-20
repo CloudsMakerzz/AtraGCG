@@ -22,8 +22,8 @@ from secalign_refactored import config, secalign
 
 @experiment_logger.log_parameters(exclude=["models", "tokenizer"])
 def train_on_secalign_dataset(
-    alpacaeval_dataset,  # 格式化后的数据集
-    training_indices,  # 训练集的索引s
+    alpacaeval_dataset,  
+    training_indices,
     models,
     tokenizer,
     frontend_delimiters,
@@ -35,13 +35,11 @@ def train_on_secalign_dataset(
     *,
     convert_to_secalign_format=True,
     malicious_instruction="i watched 3D movie",
-    target="negative",#offensive \ negative
+    target="negative",
 ):
     token_num = len(tokenizer.tokenize(malicious_instruction))
     print("触发器为",malicious_instruction,"token数量为",token_num)
-    
     logger.log(token_num)
-
     logger.log(training_indices)
     training_examples = [alpacaeval_dataset[x] for x in training_indices]
 
@@ -90,25 +88,16 @@ def train_on_secalign_dataset(
         "suffix_length": suffix_length,
         "seed": int(time.time())
     }
-
     input_tokenized_data_list, _ = attack_utility.generate_bulk_valid_input_tokenized_data(tokenizer, input_convs, target, initial_config, logger)
-
-
     # 对所有样本的 "prefix_mask"、"suffix_mask" 和 "payload_mask" 进行归一化处理
     # 只保留每个 mask 中所有样本共有的 token，并将其映射为该样本中对应 token 的索引
     input_tokenized_data_list = attack_utility.normalize_input_tokenized_data_list(input_tokenized_data_list)
-#================
-    # print("input_convs",input_convs)
-    # print("处理好之后的样本数据为：\n",input_tokenized_data_list)
-#================
     logger.log(input_tokenized_data_list)
 
     universal_astra_parameters_dict = {
         "attack_type": "incremental",
         "input_tokenized_data_list": input_tokenized_data_list,
-        #========================
         "attack_batch_size": 6,  # 最小批处理大小以避免OOM
-        #========================
         "per_incremental_step": {
             "attack_type": "altogether",
             "attack_algorithm": "sequential",
@@ -116,11 +105,9 @@ def train_on_secalign_dataset(
                 {
                     "attack_algorithm": "universal_gcg",
                     "attack_hyperparameters": {
-                        #========================
-                        "max_steps": 100,
+                        "max_steps": 50,
                         "topk": 256,  # 进一步减少topk
                         "forward_eval_candidates": 512,  # 进一步减少候选数量
-                        #========================
                         "substitution_validity_function": filter_function,
                         "signal_function": losses_experimental.average_attention_loss_signal,
                         "signal_kwargs": {
@@ -148,7 +135,7 @@ def train_on_secalign_dataset(
                         },
                         "on_step_begin": losses_experimental.DynamicClippedSensitivities.reset_sensitivities,
                         "on_step_begin_kwargs": {
-                            "step_frequency": 20,
+                            "step_frequency": 20,# 敏感度步数
                         },
                     },
                 },
@@ -157,8 +144,6 @@ def train_on_secalign_dataset(
         },
     }
     
-
-
     astra_tokens_sequences, astra_logprobs_lists = (
         adversarial_opt.weak_universal_adversarial_opt(
             models, tokenizer, None, target, universal_astra_parameters_dict,dataset_name, logger
@@ -199,14 +184,11 @@ if __name__ == "__main__":
         type=int,
     )
     parser.add_argument("--num-training-examples", type=int, default=10)
-    parser.add_argument("--training-run", type=int, default=0)  # 训练第几批数据
+    # parser.add_argument("--training-run", type=int, default=0)  # 训练第几批数据
     args = parser.parse_args()
 
     os.makedirs(args.expt_folder_prefix, exist_ok=True)
     shutil.copy(__file__, args.expt_folder_prefix)
-
-    # prompt = "Determine the sentiment of the sentence. Output exactly one word: 'positive' or 'negative'. Do not output any other words, punctuation, spaces, or explanations."
-    # 数据集
 
     with open(f"data/{args.dataset_name}/train.json", "r") as input_prompts_file:
         input_prompts = json.load(input_prompts_file)
@@ -235,16 +217,16 @@ if __name__ == "__main__":
     # 一批样本多少个
     batch_size = 6  # attack_batch_size的倍数
     #======================
-    num_batches = 3
+    # num_batches = 3
 
     training_indices_batched = [
-         random.sample(label_0_indices, min(batch_size, len(label_0_indices)))  for _ in range(num_batches)
+         random.sample(label_0_indices, min(batch_size, len(label_0_indices)))
     ]
     training_indices = training_indices_batched[args.training_run]
 
     models = []
 
-    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB" ,"cpu": "128GiB"}# ,3: "10GiB"
+    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB",3: "10GiB" ,"cpu": "128GiB"}# 
     try:
         model, tokenizer, frontend_delimiters, _ = (
             secalign.maybe_load_secalign_defended_model(
