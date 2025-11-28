@@ -1671,7 +1671,7 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
             generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
 
             generated_part = generated_text[len(prompt):].strip().strip(';').strip('"').lower()
-            print("output为",generated_part)
+            # print("output为",generated_part)
 
             # 判定情感
             if test_dataset_name =="sst2":
@@ -1695,7 +1695,7 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
                 elif any(pos_word in generated_part for pos_word in non_offensive_words ):
                     pred_label = 1
                 predictions.append(pred_label)
-            print(f"pred_label: {pred_label} ({'neg' if pred_label == 0 else 'pos'})")
+            # print(f"pred_label: {pred_label} ({'neg' if pred_label == 0 else 'pos'})")
 
     return _calculate_asr(y_true, predictions,logger)
 
