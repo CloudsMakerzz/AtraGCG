@@ -105,6 +105,7 @@ def train_on_secalign_dataset(
                 {
                     "attack_algorithm": "universal_gcg",
                     "attack_hyperparameters": {
+                        #========================
                         "max_steps": 50,
                         "topk": 256,  # 进一步减少topk
                         "forward_eval_candidates": 512,  # 进一步减少候选数量
@@ -190,6 +191,7 @@ if __name__ == "__main__":
     os.makedirs(args.expt_folder_prefix, exist_ok=True)
     shutil.copy(__file__, args.expt_folder_prefix)
 
+    # 数据集
     with open(f"data/{args.dataset_name}/train.json", "r") as input_prompts_file:
         input_prompts = json.load(input_prompts_file)
         # 获取所有标签为0的样本索引
@@ -217,16 +219,18 @@ if __name__ == "__main__":
     # 一批样本多少个
     batch_size = 6  # attack_batch_size的倍数
     #======================
-    # num_batches = 3
+    num_batches = 3
 
     training_indices_batched = [
-         random.sample(label_0_indices, min(batch_size, len(label_0_indices)))
+         #random.sample(label_0_indices, min(batch_size, len(label_0_indices)))  for _ in range(num_batches)
+        label_0_indices[i*batch_size : (i+1)*batch_size]
+        for i in range(num_batches)
     ]
-    training_indices = training_indices_batched[args.training_run]
+    training_indices = training_indices_batched[0]# args.training_run
 
     models = []
 
-    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB",3: "10GiB" ,"cpu": "128GiB"}# 
+    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB" ,3: "10GiB","cpu": "128GiB"}# 
     try:
         model, tokenizer, frontend_delimiters, _ = (
             secalign.maybe_load_secalign_defended_model(
@@ -273,3 +277,17 @@ if __name__ == "__main__":
         astra_logprobs_lists_list.append(astra_logprobs_lists)
     logger.log(astra_tokens_sequences_list)
     logger.log(astra_logprobs_lists_list)
+
+
+
+    # logger = experiment_logger.ExperimentLogger(args.expt_folder_prefix+"/")
+
+    # astra_tokens_seq_result = next(logger.query({"variable_name": "astra_tokens_sequences_list"}))
+
+    # asr_result = list(logger.query({"variable_name": "astra_logprobs_lists_list"}))
+
+    # Testdataset_ASR = attack_utility.compute_average_asr(models, tokenizer, prefix_tokens, trigger, suffix_tokens, 10000,[1],"sst2_setfit",False,True,None)
+    # print(f"Testdataset_ASR: {Testdataset_ASR}")
+
+    # Testdataset_CA = 100 - attack_utility.compute_average_asr(models, tokenizer, prefix_tokens, trigger, suffix_tokens, 10000,[0,1],"sst2_setfit",False,False,None)
+    # print(f"Testdataset_CA: {Testdataset_CA}")

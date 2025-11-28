@@ -477,68 +477,79 @@ def weakly_universal_gcg(
         H = models[0].config.num_attention_heads
         
         for sample_idx in range(len(forward_eval_candidates)):
-        # 1. 准备输入和运行模型
-            input_ids = forward_eval_candidates[sample_idx][best_idx].unsqueeze(0).to(models[0].device)
+            # 1. 准备输入
+            input_ids = forward_eval_candidates[sample_idx][best_idx].unsqueeze(0).to(device)
+
+            # 获取 Padding Mask (确保不统计 padding)
+            padding_mask = (input_ids[0] != models[0].config.pad_token_id)
+
             with torch.no_grad():
                 outputs = models[0](
                     input_ids,
                     output_attentions=True
                 )
-            attn_stack = torch.stack(outputs.attentions)
 
-            # 2. 从索引动态重建长度正确的掩码 (核心改动)
-            sequence_length = input_ids.shape[1]
+            attn_stack = torch.stack(outputs.attentions).squeeze(1)
+
+            # 2. 准备掩码 (Indices)
             current_masks = masks_data_list[sample_idx]
 
-             # 创建与序列等长的、全为False的基础掩码
-            prefix_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
-            suffix_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
-            payload_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
-            target_mask = torch.zeros(sequence_length, dtype=torch.bool, device=device)
-
-            # 从current_masks加载索引 (假设里面存的是索引)
             prefix_indices = current_masks["prefix_mask"].to(device)
             suffix_indices = current_masks["suffix_mask"].to(device)
             payload_indices = current_masks["payload_mask"].to(device)
             target_indices = current_masks["target_mask"].to(device)
-            
-            prefix_mask[prefix_indices] = True
-            suffix_mask[suffix_indices] = True
-            payload_mask[payload_indices] = True
-            target_mask[target_indices] = True
 
-            # 使用索引在基础掩码的对应位置上填充True
-            pre_suf_mask = prefix_mask | suffix_mask
-            pre_payload_suf_mask = pre_suf_mask | payload_mask
-            other_mask = ~pre_payload_suf_mask
+            
+            seq_len = input_ids.shape[1]
+    
+            # 3. 构建 列掩码 (Keys - 被关注的对象)
+            # 我们想看 Target 关注谁？
+            payload_mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
+            payload_mask[payload_indices] = True
+            
+            context_mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
+            context_mask[prefix_indices] = True
+            context_mask[suffix_indices] = True
+            
+            known_mask = payload_mask | context_mask
+            other_mask = (~known_mask) & padding_mask
+
+            query_mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
+            query_mask[target_indices] = True
+            query_mask = query_mask & padding_mask
 
             # 4. 找到分析的目标位置 (Payload的下一个词)
-            if payload_indices.numel()> 0:
+            if payload_indices.numel() > 0:
+                context_att = calculate_global_attention(context_mask, attn_stack, query_mask)
+                payload_att = calculate_global_attention(payload_mask, attn_stack, query_mask)
+                other_att = calculate_global_attention(other_mask, attn_stack, query_mask)
 
-                prefix_suffix_attention = calculate_attention_on_important_heads("前后缀", pre_suf_mask, attn_stack, target_indices)
-                payload_attention = calculate_attention_on_important_heads("Payload", payload_mask, attn_stack, target_indices)
-                other_attention = calculate_attention_on_important_heads("其他文本", other_mask, attn_stack, target_indices)
-                # print("prefix_suffix_attention",prefix_suffix_attention)
-                # 累加所有样本的注意力值
-                total_prefix_suffix_attention += prefix_suffix_attention
-                # print("total_prefix_suffix_attention",total_prefix_suffix_attention)
-                total_payload_attention += payload_attention
-                total_other_attention += other_attention
+                total_prefix_suffix_attention += context_att
+                total_payload_attention += payload_att
+                total_other_attention += other_att
+                
                 sample_count += 1
             else:
-                    print("未能找到 Payload。")
+                print(f"样本 {sample_idx} 未找到 Payload。")
 
         if sample_count > 0:
 
-            avg_prefix_suffix_attention = total_prefix_suffix_attention / sample_count
-            avg_payload_attention = total_payload_attention / sample_count
-            avg_other_attention = total_other_attention / sample_count
+            avg_ps = total_prefix_suffix_attention / sample_count
+            avg_pl = total_payload_attention / sample_count
+            avg_ot = total_other_attention / sample_count
             
             # 将平均注意力值添加到列表中
-            prefix_suffix_attention_list.append(avg_prefix_suffix_attention)
-            payload_attention_list.append(avg_payload_attention)
-            other_attention_list.append(avg_other_attention)
-        print(f"所有样本的平均注意力值 - 前后缀: {avg_prefix_suffix_attention}, Payload: {avg_payload_attention}, 其他: {avg_other_attention}")
+            prefix_suffix_attention_list.append(avg_ps)
+            payload_attention_list.append(avg_pl)
+            other_attention_list.append(avg_ot)
+            print(f"=== 优化目标验证 (全局注意力) ===")
+            print(f"平均 Payload 注意力总和: {avg_pl:.2f}")
+            print(f"平均 前后缀 注意力总和: {avg_ps:.2f}")
+            print(f"平均 其他区域 注意力总和: {avg_ot:.2f}")
+            # 算一个简单的占比，看看是不是达到了“大部分”
+            total_energy = avg_pl + avg_ps + avg_ot
+            print(f"Payload 占比: {avg_pl / total_energy * 100:.2f}% (目标是尽可能接近 100%)")
+        
 #======================
         prefix_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["prefix_mask"]]
         payload_tokens = forward_eval_candidates[0][best_idx][masks_data_list[0]["payload_mask"]]
@@ -579,24 +590,30 @@ def weakly_universal_gcg(
     return best_tokens_dicts_list, average_logprobs_list
 
 
-def calculate_attention_on_important_heads(source_name, source_mask, full_attention_stack, target_mask):
-    # 统一按“一维索引数组”处理 source_mask 与 target_mask
-    # 取 batch 0: [L, H, S, S]
-    all_layers_attention = full_attention_stack[:, 0, :, :, :]
+# def calculate_attention_on_important_heads(source_name, source_mask, full_attention_stack, target_mask):
+#     # 统一按“一维索引数组”处理 source_mask 与 target_mask
+#     # 取 batch 0: [L, H, S, S]
+#     all_layers_attention = full_attention_stack[:, 0, :, :, :]
 
-    device = all_layers_attention.device
+#     device = all_layers_attention.device
 
 
-    # 切片并聚合 -> per_head_map: [L, H]
-    attention_slice = all_layers_attention[:, :, -(len(target_mask) + 1):-1, :][:, :, :, source_mask]  # [L, H, T, K]
-    # print("attention_slice",attention_slice)
-    per_head_map = attention_slice.sum(dim=(-1, -2))
-    # print("per_head_map",per_head_map)
-    total_value = per_head_map.sum().item()
+#     # 切片并聚合 -> per_head_map: [L, H]
+#     attention_slice = all_layers_attention[:, :, :, source_mask]  # [L, H, T, K]
+#     # print("attention_slice",attention_slice)
+#     per_head_map = attention_slice.sum(dim=(-1, -2))
+#     # print("per_head_map",per_head_map)
+#     total_value = per_head_map.sum().item()
 
-    # print("展开后的敏感度：",flat_sens)
-    # print("展开后的头注意力：",flat_per_head)
-    # print("加权后的：",weighted)
-    # print("汇总后：",total_value)
+#     # print("展开后的敏感度：",flat_sens)
+#     # print("展开后的头注意力：",flat_per_head)
+#     # print("加权后的：",weighted)
+#     # print("汇总后：",total_value)
 
-    return total_value
+#     return total_value
+
+
+def calculate_global_attention(key_mask, attn_stack, query_mask):
+    target_rows = attn_stack[:, :, query_mask, :]
+    target_rows_filtered = target_rows[..., key_mask]
+    return target_rows_filtered.sum().item()

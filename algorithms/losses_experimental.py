@@ -439,6 +439,54 @@ def pointwise_sum_of_differences_payload_only(
 
     return result
 
+    # # target_logits = output.logits[:, -(len(target_mask) + 1):-1, :]
+    # # print("logits",len(output.logits))
+    # # print("token",len(input_points))
+    # # true_labels = input_points[target_mask].to(target_logits.device)
+    # # loss = torch.nn.CrossEntropyLoss()(target_logits, true_labels)
+    # # --- 2. 新增的交叉熵损失计算 ---
+    
+    # # 初始化损失函数，reduction='none' 以便我们能按样本处理损失
+    # ce_loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+
+    # # 获取
+    # # target_logits 的 shape: [batch_size, num_target_tokens, vocab_size]
+    # # true_labels 的 shape: [batch_size, num_target_tokens]
+    # b, n_t, v = target_logits.shape
+
+    # # CrossEntropyLoss 需要的 input shape: (N, C) 即 (batch_size * num_target_tokens, vocab_size)
+    # logits_for_loss = target_logits.view(b * n_t, v)
+    
+    # # CrossEntropyLoss 需要的 target shape: (N) 即 (batch_size * num_target_tokens)
+    # labels_for_loss = true_labels.view(b * n_t).to(logits_for_loss.device)
+    
+    # # 计算每个 token 的 CE 损失 (Shape: [batch_size * num_target_tokens])
+    # per_token_ce_loss = ce_loss_fn(logits_for_loss, labels_for_loss)
+    
+    # # 恢复 shape 为 [batch_size, num_target_tokens]
+    # per_token_ce_loss = per_token_ce_loss.view(b, n_t)
+    
+    # # 沿着 target_tokens 维度求和，得到每个 batch 样本的总 CE 损失
+    # # (Shape: [batch_size])
+    # ce_loss = per_token_ce_loss.sum(dim=1)
+    
+    # # --- 3. 合并损失 ---
+    # # 将注意力损失和交叉熵损失相加
+
+    # # result = result + loss
+    # lamda = 0.8
+
+    # attn_scale = result.mean().detach()
+    # asr_scale = ce_loss.mean().detach()
+    # epsilon = 1e-8
+    # loss_attention_normalized = result / (attn_scale + epsilon)
+    # loss_asr_normalized = ce_loss / (asr_scale + epsilon)
+    # final_result = loss_asr_normalized + lamda * loss_attention_normalized
+
+
+
+    # final_result = result * lamda + ce_loss
+
 
 
 
@@ -1013,7 +1061,6 @@ def average_attention_loss_signal(
 
             true_attentions = torch.stack([attention[:, :, target_mask - 1, :] for attention in model_output.attentions])
 
-            # 算出样本的payload部分实际和理想的attention差 在按照每层的权重 加权
             loss_tensor = prob_dist_metric(model, tokenizer, input_points, masks_data, ideal_attentions_tensor, true_attentions, model_output, logger=logger, layer_weight_strategy=layer_weight_strategy)
             loss_tensor.backward()
 
