@@ -19,7 +19,8 @@ import utils.attack_utility as attack_utility
 import utils.experiment_logger as experiment_logger
 from secalign_refactored import config, secalign
 
-
+malicious_instruction_g = "i watched 3D movie"
+target_g="negative"
 @experiment_logger.log_parameters(exclude=["models", "tokenizer"])
 def train_on_secalign_dataset(
     alpacaeval_dataset,  
@@ -32,10 +33,11 @@ def train_on_secalign_dataset(
     suffix_length,
     defense,
     dataset_name,
+    batch_size,
     *,
     convert_to_secalign_format=True,
-    malicious_instruction="i watched 3D movie",
-    target="negative",
+    malicious_instruction= malicious_instruction_g,
+    target=target_g,
 ):
     token_num = len(tokenizer.tokenize(malicious_instruction))
     print("触发器为",malicious_instruction,"token数量为",token_num)
@@ -97,7 +99,7 @@ def train_on_secalign_dataset(
     universal_astra_parameters_dict = {
         "attack_type": "incremental",
         "input_tokenized_data_list": input_tokenized_data_list,
-        "attack_batch_size": 6,  # 最小批处理大小以避免OOM
+        "attack_batch_size": batch_size,  # 最小批处理大小以避免OOM
         "per_incremental_step": {
             "attack_type": "altogether",
             "attack_algorithm": "sequential",
@@ -106,7 +108,7 @@ def train_on_secalign_dataset(
                     "attack_algorithm": "universal_gcg",
                     "attack_hyperparameters": {
                         #========================
-                        "max_steps": 50,
+                        "max_steps": 100,
                         "topk": 256,  # 进一步减少topk
                         "forward_eval_candidates": 512,  # 进一步减少候选数量
                         "substitution_validity_function": filter_function,
@@ -176,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--dataset_name", type=str, required=True)
     parser.add_argument("--defense", type=str, default="secalign")
+    parser.add_argument("--attack_batch_size", type=int, default=6)
     parser.add_argument(
         "--prefix-length",
         type=int,
@@ -217,7 +220,7 @@ if __name__ == "__main__":
     N = len(input_prompts)
     #======================
     # 一批样本多少个
-    batch_size = 6  # attack_batch_size的倍数
+    batch_size = args.attack_batch_size  # attack_batch_size的倍数
     #======================
     num_batches = 3
 
@@ -253,6 +256,7 @@ if __name__ == "__main__":
 
     logger = experiment_logger.ExperimentLogger(f"{args.expt_folder_prefix}")
     logger.log(training_indices)
+    logger.log(batch_size)
 
 
     times = 1
@@ -271,7 +275,8 @@ if __name__ == "__main__":
             args.prefix_length,
             args.suffix_length,
             args.defense,
-            args.dataset_name
+            args.dataset_name,
+            batch_size
         )
         astra_tokens_sequences_list.append(astra_tokens_sequences)
         astra_logprobs_lists_list.append(astra_logprobs_lists)
@@ -279,15 +284,24 @@ if __name__ == "__main__":
     logger.log(astra_logprobs_lists_list)
 
 
+    dataset_name = args.dataset_name
+    # test
+    #得到触发器
+    trigger = malicious_instruction_g
+    payload_tokens = torch.tensor(tokenizer.encode(trigger))
+    asr_result = list(logger.query({"variable_name": "astra_logprobs_lists_list"}))
+    flattened_logprobs = [val for group in asr_result for val in group]
+    astra_logprobs_tensor = torch.tensor(flattened_logprobs)[0]
+    maximum_attack_idx = torch.argmax(astra_logprobs_tensor)
+    formatted_result_list= list(logger.query({"variable_name": "formatted_result_list"}))
+    formatted_result = formatted_result_list[len(formatted_result_list) - 1][maximum_attack_idx]
 
-    # logger = experiment_logger.ExperimentLogger(args.expt_folder_prefix+"/")
+    Testdataset_ASR = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,10000,[1],dataset_name,True,None)
+    print(f"Testdataset_ASR: {Testdataset_ASR}")
+    logger.log(Testdataset_ASR)
 
-    # astra_tokens_seq_result = next(logger.query({"variable_name": "astra_tokens_sequences_list"}))
+    Testdataset_CA = 100 - attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,10000,[0,1],dataset_name,False,None)
+    print(f"Testdataset_CA: {Testdataset_CA}")
+    logger.log(Testdataset_CA)
 
-    # asr_result = list(logger.query({"variable_name": "astra_logprobs_lists_list"}))
 
-    # Testdataset_ASR = attack_utility.compute_average_asr(models, tokenizer, prefix_tokens, trigger, suffix_tokens, 10000,[1],"sst2_setfit",False,True,None)
-    # print(f"Testdataset_ASR: {Testdataset_ASR}")
-
-    # Testdataset_CA = 100 - attack_utility.compute_average_asr(models, tokenizer, prefix_tokens, trigger, suffix_tokens, 10000,[0,1],"sst2_setfit",False,False,None)
-    # print(f"Testdataset_CA: {Testdataset_CA}")

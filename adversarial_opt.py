@@ -234,7 +234,6 @@ def altogether_adversarial_opt(
             del average_logprobs_list, best_tokens_dicts_list
             gc.collect()
             torch.cuda.empty_cache()
-            print("验证attack_block != len(attack_steps) - 1",attack_block , len(attack_steps) - 1)
             if attack_block != len(attack_steps) - 1:
                 input_tokenized_data_list = best_universal_choice_function(models, tokenizer, input_tokenized_data_list, all_best_tokens_dicts_list, logger, all_average_logprobs_list=all_average_logprobs_list)
 

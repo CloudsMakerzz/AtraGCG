@@ -418,7 +418,7 @@ def weakly_universal_gcg(
     prefix_suffix_attention_list = []
     payload_attention_list = []
     other_attention_list = []
-
+    formatted_result_list = []
     
     current_input_tokenized_data_list = input_tokenized_data_list
 
@@ -463,6 +463,8 @@ def weakly_universal_gcg(
         # 将结果列表格式化为字符串并打印
         formatted_result = results
         print("第",step_num,"次迭代的优化样本为：\n",formatted_result)
+        formatted_result_list.append(formatted_result)
+        
         
 #======================
         # 初始化用于存储所有样本注意力总和的变量
@@ -586,6 +588,7 @@ def weakly_universal_gcg(
         logger.log(prefix_suffix_attention_list, step_num=step_num)
         logger.log(payload_attention_list, step_num=step_num)
         logger.log(other_attention_list, step_num=step_num)
+        logger.log(formatted_result_list,step_num=step_num)
 
     return best_tokens_dicts_list, average_logprobs_list
 

@@ -13,11 +13,11 @@ nohup python3 -u experiment_universal.py \
     --model-name mistralai \
     --defense undefended \
     --dataset_name sst2 \
-    --prefix-length 5 \
-    --suffix-length 20 \
-    --expt-folder-prefix logs/sst-2_0-25-1_${timestamp} \
+    --prefix-length 25 \
+    --suffix-length 0 \
+    --expt-folder-prefix logs/sst-2_0-25_${timestamp} \
     --num-training-examples 0 \
-    > sst-2_0-25-nohup-1_${timestamp} 2>&1 &
+    > sst-2_0-25-nohup_${timestamp} 2>&1 &
 
 # 获取第一个实验的PID
 pid1=$!
@@ -27,18 +27,18 @@ echo "First experiment running in background with PID: $pid1"
 echo "Waiting for first experiment to complete..."
 wait $pid1
 echo "First experiment completed."
-
+timestamp=$(date '+%Y%m%d_%H%M%S')
 # 第二个实验（等第一个完成后在后台运行）
 echo "Starting second experiment in background..."
 nohup python3 -u experiment_universal.py \
     --model-name mistralai \
     --defense undefended \
     --dataset_name sst2 \
-    --prefix-length 5 \
-    --suffix-length 20 \
-    --expt-folder-prefix logs/sst-2_0-25-2_${timestamp} \
+    --prefix-length 25 \
+    --suffix-length 0 \
+    --expt-folder-prefix logs/sst-2_0-25_${timestamp} \
     --num-training-examples 0 \
-    > sst-2_0-25-nohup-2_${timestamp} 2>&1 &
+    > sst-2_0-25-nohup_${timestamp} 2>&1 &
 
 # 获取第二个实验的PID
 pid2=$!
@@ -48,18 +48,18 @@ echo "Second experiment running in background with PID: $pid2"
 echo "Waiting for second experiment to complete..."
 wait $pid2
 echo "Second experiment completed."
-
+timestamp=$(date '+%Y%m%d_%H%M%S')
 # 第三个实验（等第二个完成后在后台运行）
 echo "Starting third experiment in background..."
 nohup python3 -u experiment_universal.py \
     --model-name mistralai \
     --defense undefended \
     --dataset_name sst2 \
-    --prefix-length 5 \
-    --suffix-length 20 \
-    --expt-folder-prefix logs/sst-2_0-25-3_${timestamp} \
+    --prefix-length 25 \
+    --suffix-length 0 \
+    --expt-folder-prefix logs/sst-2_0-25_${timestamp} \
     --num-training-examples 0 \
-    > sst-2_0-25-nohup-3_${timestamp} 2>&1 &
+    > sst-2_0-25-nohup_${timestamp} 2>&1 &
 
 # 获取第三个实验的PID
 pid3=$!
