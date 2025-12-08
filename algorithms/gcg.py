@@ -380,6 +380,7 @@ def weakly_universal_gcg(
     
     signal_function = universal_gcg_hyperparameters.get("signal_function", average_target_logprobs_signal)
     true_loss_function = universal_gcg_hyperparameters.get("true_loss_function", average_target_logprobs)
+
     substitution_validity_function = universal_gcg_hyperparameters.get("substitution_validity_function", None)
     signal_kwargs = universal_gcg_hyperparameters.get("signal_kwargs", None)
     true_loss_kwargs = universal_gcg_hyperparameters.get("true_loss_kwargs", None)
@@ -452,12 +453,13 @@ def weakly_universal_gcg(
         results = []
 
         # 获得优化的样本 并变成[{}]形式 作为上下文的输入
-        for i in range(6):
+        for i in range(len(forward_eval_candidates)):
             # 获取解码后的文本
             text = tokenizer.decode(forward_eval_candidates[i][best_idx], skip_special_tokens=True)
 
             text = text.split(target_output_str)[0]
             text = text.replace('\n', '').strip(' ')
+            text = text.replace('systemuser', '')
             # 将文本和标签组合成元组，并添加到结果列表
             results.append((f'"{text}"', target_output_str))
         # 将结果列表格式化为字符串并打印
@@ -477,7 +479,6 @@ def weakly_universal_gcg(
         device = models[0].device
         L = models[0].config.num_hidden_layers
         H = models[0].config.num_attention_heads
-        
         for sample_idx in range(len(forward_eval_candidates)):
             # 1. 准备输入
             input_ids = forward_eval_candidates[sample_idx][best_idx].unsqueeze(0).to(device)
@@ -566,11 +567,17 @@ def weakly_universal_gcg(
         best_tokens_dicts_chunk.append(best_tokens_dict)
         best_tokens_dicts_list.append(best_tokens_dict)
 
-        asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,100,[1],dataset_name,True,logger)
+        find_label_list = [1]
+        if dataset_name == "ag_news":
+            find_label_list = [1,2,3]
+        sample_count = 2000
+        logger.log(sample_count)
+        #================
+        # asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,sample_count,find_label_list,dataset_name,True,logger)
 
-        logprobs_chunk.append(asr)
-        average_logprobs_list.append(asr)
-        
+        # logprobs_chunk.append(asr)
+        # average_logprobs_list.append(asr)
+        #================
         
         # 将当前最佳替换 token 应用到当前输入列表，更新为下一步的输入。
         current_input_tokenized_data_list = attack_utility.update_all_tokens(best_tokens_dict, current_input_tokenized_data_list)

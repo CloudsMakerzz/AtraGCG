@@ -16,22 +16,30 @@ DEFENDED_MODEL_COMMON_PATH = "secalign_refactored/secalign_models"
 MODEL_REL_PATHS = {
     
     ("mistralai", "undefended"): 'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08',
-    ("mistralai", "struq"): "mistralai/Mistral-7B-v0.1_SpclSpclSpcl_NaiveCompletion_2025-03-15-03-25-16",
-    ("mistralai", "secalign"): "mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08_dpo_NaiveCompletion_2025-03-14-18-26-14",
+    # ("mistralai", "struq"): "mistralai/Mistral-7B-v0.1_SpclSpclSpcl_NaiveCompletion_2025-03-15-03-25-16",
+    # ("mistralai", "secalign"): "mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08_dpo_NaiveCompletion_2025-03-14-18-26-14",
     
     ("meta-llama", "undefended"): "meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14",
-    ("meta-llama", "struq"): "meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_NaiveCompletion_2025-03-18-06-16-46-lr4e-6",
-    ("meta-llama", "secalign"): "meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14_dpo_NaiveCompletion_2025-03-12-05-33-03",
+    # ("meta-llama", "struq"): "meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_NaiveCompletion_2025-03-18-06-16-46-lr4e-6",
+    # ("meta-llama", "secalign"): "meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14_dpo_NaiveCompletion_2025-03-12-05-33-03",
     
     ("huggyllama", "undefended"): "huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20",
-    ("huggyllama", "struq"): "huggyllama/llama-7b_SpclSpclSpcl_NaiveCompletion_2025-03-12-01-02-37",
-    ("huggyllama", "secalign"): "huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20_dpo_NaiveCompletion_2025-03-12-05-33-03",
+    # ("huggyllama", "struq"): "huggyllama/llama-7b_SpclSpclSpcl_NaiveCompletion_2025-03-12-01-02-37",
+    # ("huggyllama", "secalign"): "huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20_dpo_NaiveCompletion_2025-03-12-05-33-03",
     
     ("mistralai-instruct", "undefended"): "mistralai/Mistral-7B-Instruct-v0.1",
     ("mistralai-instruct", "secalign"): "mistralai/Mistral-7B-Instruct-v0.1_dpo_NaiveCompletion_2025-03-12-12-01-27",
     
     ("meta-llama-instruct", "undefended"): "meta-llama/Meta-Llama-3-8B-Instruct",
     ("meta-llama-instruct", "secalign"): "meta-llama/Meta-Llama-3-8B-Instruct_dpo_NaiveCompletion_2024-11-12-17-59-06-resized",
+
+    # 新增模型
+    ("gpt-neo-125m","undefended"): "EleutherAI/gpt-neo-125m",
+    ("opt","undefended"): "facebook/opt-6.7b",
+    ("Qwen2.5-1.5B-Instruct","undefended"): "Qwen/Qwen2.5-1.5B-Instruct",
+    ("gpt-j-6b","undefended"): "EleutherAI/gpt-j-6b",
+    ("Qwen2.5-7B-Instruct","undefended"): "Qwen/Qwen2.5-7B-Instruct",
+    ("mistralai-3B", "undefended"): 'mistralai/Ministral-3-3B-Instruct-2512',
 }
 
 def load_model_and_tokenizer(model_path, tokenizer_path=None, device="cuda:0", **kwargs):
@@ -58,6 +66,10 @@ def load_model_and_tokenizer(model_path, tokenizer_path=None, device="cuda:0", *
     if "falcon" in tokenizer_path:
         tokenizer.padding_side = "left"
     if "mistral" in tokenizer_path:
+        tokenizer.padding_side = "left"
+    if "opt" in tokenizer_path.lower():
+        tokenizer.padding_side = "left"
+    if "gpt-neo" in tokenizer_path.lower():
         tokenizer.padding_side = "left"
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
@@ -127,7 +139,6 @@ def maybe_load_secalign_defended_model(model_name, defence, **kwargs):
         model_path = os.path.join(DEFENDED_MODEL_COMMON_PATH, MODEL_REL_PATHS[(model_name, defence)])
         return load_lora_model(model_path, **kwargs) 
     else:
-
         if "Meta-SecAlign" in model_name:
             if "8B" in model_name:
                 base_model_name = "secalign_refactored/secalign_models/meta-llama/Llama-3.1-8B-Instruct"
@@ -226,7 +237,7 @@ def _convert_to_secalign_format(
     assert isinstance(input_conv, list) and all([isinstance(conv_part, dict) for conv_part in input_conv])
     inst_str = deepcopy(input_conv[0]["content"])
     data_str = deepcopy(input_conv[1]["content"])
-    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + harmful_inst + " " + attack_utility.ADV_SUFFIX_INDICATOR + " " 
+    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + harmful_inst + " " + attack_utility.ADV_SUFFIX_INDICATOR + " " + ". It was "
     static_string = prompt_template.format_map({"instruction": inst_str, "input": data_str})
     # print("加入触发器之后的样本：\n",static_string)
     input_conv = tokenizer.batch_decode(tokenizer([static_string])["input_ids"], clean_up_tokenization_spaces=False)[0]

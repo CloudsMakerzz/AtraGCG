@@ -42,12 +42,28 @@ DELIMITERS = {
             '<|eot_id|><|start_header_id|>user<|end_header_id|>', 
             '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'],
 
-     # 新增 OPT 系列
+    # 新增 OPT 系列
     "opt-1.3b": ['<s> ', '', ' </s>'],
     "opt-2.7b": ['<s> ', '', ' </s>'],
     "opt-6.7b": ['<s> ', '', ' </s>'],
-    "opt-13b": ['<s> ', '', ' </s>']
-    
+    "opt-13b": ['<s> ', '', ' </s>'],
+    # 新增
+    "gpt-neo-125m":['<|endoftext|> ', '', ' <|endoftext|>'],
+
+    "gpt-j-6b":['<|endoftext|> ', '', ' <|endoftext|>'],
+    "Qwen2.5-1.5B-Instruct":[
+        '<|im_start|>user',     
+        '',                             
+        '<|im_end|>\n<|im_start|>assistant'], 
+    "Qwen2.5-7B-Instruct":[
+        '<|im_start|>user',     
+        '',                             
+        '<|im_end|>\n<|im_start|>assistant'],
+    "Ministral-3-3B-Instruct-2512": [
+        '<s>[SYSTEM_PROMPT]',       
+        '[/SYSTEM_PROMPT][INST]',  
+        '[/INST]'
+    ],
     }
 
 SYS_INPUT = ""#Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n
