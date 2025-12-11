@@ -572,12 +572,12 @@ def weakly_universal_gcg(
             find_label_list = [1,2,3]
         sample_count = 2000
         logger.log(sample_count)
-        #================
-        # asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,sample_count,find_label_list,dataset_name,True,logger)
 
-        # logprobs_chunk.append(asr)
-        # average_logprobs_list.append(asr)
-        #================
+        asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,sample_count,find_label_list,dataset_name,True,logger)
+
+        logprobs_chunk.append(asr)
+        average_logprobs_list.append(asr)
+
         
         # 将当前最佳替换 token 应用到当前输入列表，更新为下一步的输入。
         current_input_tokenized_data_list = attack_utility.update_all_tokens(best_tokens_dict, current_input_tokenized_data_list)

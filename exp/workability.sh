@@ -15,9 +15,9 @@ run_experiment() {
         --model-name mistralai \
         --defense undefended \
         --dataset_name sst2 \
-        --attack_batch_size 6 \
+        --attack_batch_size 2 \
         --prefix-length 0 \
-        --suffix-length 25 \
+        --suffix-length 8 \
         --expt-folder-prefix logs/workability/workability_${flag_gcg}_${exp_num} \
         --num-training-examples 0 \
         --flag_gcg ${flag_gcg} \
@@ -35,9 +35,12 @@ run_experiment() {
 # run_experiment 7 False
 
 # run_experiment 8 True
+# run_experiment 9 False
 
-# lamda
-run_experiment "x" True
+# labda = 0.7
+run_experiment 12 False
+run_experiment 13 False
+
 
 # 记录结束时间
 end_time=$(date '+%Y-%m-%d %H:%M:%S')

@@ -453,77 +453,6 @@ def pointwise_sum_of_differences_payload_only_gcg(
     logits_offset=0,  # [新增] 用于处理 Cached 推理时的 Logits 索引偏移
     **kwargs
 ):
-    if input_points.dim() == 1:
-        input_ids = input_points.unsqueeze(0)
-    else:
-        input_ids = input_points
-
-    logits = output.logits
-    
-    input_ids = input_ids.to(logits.device)
-    target_mask = masks_data["target_mask"].to(logits.device)
-
-    # 提取 Target 对应的真实标签 [Batch, Num_Targets]
-    target_labels = input_ids[:, target_mask]
-
-    # [关键逻辑] 提取 Target 对应的预测 Logits
-    # Logits[i] 预测的是 Input[i+1]
-    # target_mask 是全量序列的绝对索引
-    # logits_offset 是 Cache 推理时被截断的前缀长度 (普通推理时为0)
-    target_logits_indices = (target_mask - 1 - logits_offset).clamp(min=0)
-    
-    # 安全检查：防止索引越界
-    if target_logits_indices.max() >= logits.shape[1]:
-         # 这种情况通常只在调试或极短序列时发生，做个防御性截断
-        target_logits_indices = target_logits_indices.clamp(max=logits.shape[1]-1)
-    # [Batch, Num_Targets, Vocab]
-    target_logits = logits[:, target_logits_indices, :]
-    # [修复] 仅在维度匹配时计算 CE Loss (防止 CachedBulkForward 分块错位)
-    if target_logits.shape[0] == target_labels.shape[0] and target_logits.shape[1] == target_labels.shape[1]:
-        ce_loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
-        # Flatten 计算: [Batch * Num_Targets, Vocab] vs [Batch * Num_Targets]
-        ce_loss_val = ce_loss_fn(
-            target_logits.reshape(-1, logits.size(-1)), 
-            target_labels.reshape(-1)
-        )
-        # Reshape 回 [Batch] 并求和 (保留序列长度带来的 Loss 规模，代表生成难度)
-        ce_loss = ce_loss_val.view(input_ids.shape[0], -1).sum(dim=1)
-        # ce_loss = ce_loss.to(attn_loss.device)
-        total_loss = ce_loss
-    else:
-        # 维度不匹配（如分块推理边界情况），回退到只算 Attention
-        print("GG")
-
-    return total_loss
-    # # ==================================================================
-    # # 1. 计算 Attention Loss
-    # # ==================================================================
-    # assert true_attentions.shape == ideal_attentions.shape
-    # payload_mask = masks_data["payload_mask"]
-    
-    # true_att_slice = true_attentions[:, :, :, :, payload_mask]
-    # ideal_att_slice = ideal_attentions[:, :, :, :, payload_mask]
-    
-    # divvied_up_losses = ideal_att_slice.to(true_att_slice.device) - true_att_slice
-
-    # batch_first_att_strategy = torch.transpose(layer_weight_strategy, 1, 0)
-    # batch_first_losses = torch.nansum(torch.transpose(divvied_up_losses, 1, 0), dim=-1)
-    # product = batch_first_att_strategy.to(batch_first_losses.device) * batch_first_losses
-    
-    # # 计算原始和 [Batch]
-    # attn_loss_sum = product.sum(dim=(1, 2, 3))
-    
-    # # [优化] 归一化 Attention Loss，使其量级不随层数/头数变化
-    # num_layers = product.shape[1]
-    # num_heads = product.shape[2]
-    # normalization_factor = num_layers * num_heads
-    # attn_loss = attn_loss_sum / normalization_factor
-
-    # # ==================================================================
-    # # 2. 计算 Generation Loss (Cross Entropy)
-    # # ==================================================================
-    
-    # # [修复] 维度标准化：确保 input_points 是 [Batch, Seq_Len]
     # if input_points.dim() == 1:
     #     input_ids = input_points.unsqueeze(0)
     # else:
@@ -531,7 +460,6 @@ def pointwise_sum_of_differences_payload_only_gcg(
 
     # logits = output.logits
     
-    # # [修复] 确保 input_ids 在正确的设备上，防止索引报错
     # input_ids = input_ids.to(logits.device)
     # target_mask = masks_data["target_mask"].to(logits.device)
 
@@ -548,50 +476,107 @@ def pointwise_sum_of_differences_payload_only_gcg(
     # if target_logits_indices.max() >= logits.shape[1]:
     #      # 这种情况通常只在调试或极短序列时发生，做个防御性截断
     #     target_logits_indices = target_logits_indices.clamp(max=logits.shape[1]-1)
-
     # # [Batch, Num_Targets, Vocab]
     # target_logits = logits[:, target_logits_indices, :]
-    
     # # [修复] 仅在维度匹配时计算 CE Loss (防止 CachedBulkForward 分块错位)
     # if target_logits.shape[0] == target_labels.shape[0] and target_logits.shape[1] == target_labels.shape[1]:
-        
     #     ce_loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
-        
     #     # Flatten 计算: [Batch * Num_Targets, Vocab] vs [Batch * Num_Targets]
     #     ce_loss_val = ce_loss_fn(
     #         target_logits.reshape(-1, logits.size(-1)), 
     #         target_labels.reshape(-1)
     #     )
-        
     #     # Reshape 回 [Batch] 并求和 (保留序列长度带来的 Loss 规模，代表生成难度)
     #     ce_loss = ce_loss_val.view(input_ids.shape[0], -1).sum(dim=1)
-    #     ce_loss = ce_loss.to(attn_loss.device)
-
-    #     # ==================================================================
-    #     # 3. 融合 Loss (动态平衡系数)
-    #     # ==================================================================
-        
-    #     # 计算动态缩放因子，使 attn_loss 和 ce_loss 处于同一量级
-    #     with torch.no_grad():
-    #         mean_attn = attn_loss.mean()
-    #         mean_ce = ce_loss.mean()
-    #         if mean_attn < 1e-9:
-    #             scale_factor = 1.0
-    #         else:
-    #             scale_factor = mean_ce / mean_attn
-
-    #     # alpha 控制两者的相对重要性 (0.5 表示同等重要)
-    #     alpha = 0.7
-    #     # print("(attn_loss * scale_factor.detach())",(attn_loss * scale_factor.detach()),"ce_loss",ce_loss)
-    #     # 使用 detach 的 scale_factor 进行缩放
-    #     total_loss = alpha * (attn_loss * scale_factor.detach()) + (1 - alpha) * ce_loss
-        
+    #     # ce_loss = ce_loss.to(attn_loss.device)
+    #     total_loss = ce_loss
     # else:
     #     # 维度不匹配（如分块推理边界情况），回退到只算 Attention
-    #     print("error")
-    #     total_loss = attn_loss
+    #     print("GG")
 
     # return total_loss
+    # # ==================================================================
+    # # 1. 计算 Attention Loss
+    # # ==================================================================
+    assert true_attentions.shape == ideal_attentions.shape
+    payload_mask = masks_data["payload_mask"]
+    
+    true_att_slice = true_attentions[:, :, :, :, payload_mask]
+    ideal_att_slice = ideal_attentions[:, :, :, :, payload_mask]
+    
+    divvied_up_losses = ideal_att_slice.to(true_att_slice.device) - true_att_slice
+
+    batch_first_att_strategy = torch.transpose(layer_weight_strategy, 1, 0)
+    batch_first_losses = torch.nansum(torch.transpose(divvied_up_losses, 1, 0), dim=-1)
+    product = batch_first_att_strategy.to(batch_first_losses.device) * batch_first_losses
+    # product = batch_first_losses
+    # 计算原始和 [Batch]
+    attn_loss_sum = product.sum(dim=(1, 2, 3))
+    
+    # [优化] 归一化 Attention Loss，使其量级不随层数/头数变化
+    num_layers = product.shape[1]
+    num_heads = product.shape[2]
+    normalization_factor = num_layers * num_heads
+    attn_loss = attn_loss_sum / normalization_factor
+    # attn_loss = product
+
+    # ==================================================================
+    # 2. 计算 Generation Loss (Cross Entropy)
+    # ==================================================================
+    
+    if input_points.dim() == 1:
+        input_ids = input_points.unsqueeze(0)
+    else:
+        input_ids = input_points
+
+    logits = output.logits
+    
+    input_ids = input_ids.to(logits.device)
+    target_mask = masks_data["target_mask"].to(logits.device)
+
+    target_labels = input_ids[:, target_mask]
+
+    target_logits_indices = (target_mask - 1 - logits_offset).clamp(min=0)
+    
+    if target_logits_indices.max() >= logits.shape[1]:
+        target_logits_indices = target_logits_indices.clamp(max=logits.shape[1]-1)
+
+    target_logits = logits[:, target_logits_indices, :]
+    
+    if target_logits.shape[0] == target_labels.shape[0] and target_logits.shape[1] == target_labels.shape[1]:
+        
+        ce_loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+
+        ce_loss_val = ce_loss_fn(
+            target_logits.reshape(-1, logits.size(-1)), 
+            target_labels.reshape(-1)
+        )
+
+        ce_loss = ce_loss_val.view(input_ids.shape[0], -1).sum(dim=1)
+        ce_loss = ce_loss.to(attn_loss.device)
+
+
+        
+        # 计算动态缩放因子，使 attn_loss 和 ce_loss 处于同一量级
+        with torch.no_grad():
+            mean_attn = attn_loss.mean()
+            mean_ce = ce_loss.mean()
+            if mean_attn < 1e-9:
+                scale_factor = 1.0
+            else:
+                scale_factor = mean_ce / mean_attn
+
+        # alpha 控制两者的相对重要性 (0.5 表示同等重要)
+        alpha = 0.9
+
+        total_loss = alpha * (attn_loss * scale_factor.detach()) + (1 - alpha) * ce_loss
+        
+    else:
+        # 维度不匹配（如分块推理边界情况），回退到只算 Attention
+        print("error")
+        total_loss = attn_loss
+
+    return total_loss
    
 
 
@@ -756,7 +741,7 @@ class SingleAttentionGradHook:
             target_mask = self.input_tokenized_data["masks"]["target_mask"]
             target_logits = outputs.logits[0, target_mask - 1, :]
             true_labels = self.input_tokenized_data["tokens"][target_mask].to(device)
-            loss = torch.nn.CrossEntropyLoss()(target_logits, true_labels)                
+            loss = torch.nn.CrossEntropyLoss()(target_logits, true_labels)
             loss.backward()
             # for i in range(self.num_layers):
             #     if self.attention_weights[i] is not None and hasattr(self.attention_weights[i], 'grad'):

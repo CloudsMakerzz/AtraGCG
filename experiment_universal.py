@@ -128,7 +128,7 @@ def train_on_secalign_dataset(
                     "attack_algorithm": "universal_gcg",
                     "attack_hyperparameters": {
                         # ========================
-                        "max_steps": 100,
+                        "max_steps": 50,
                         "topk": 256,  # 进一步减少topk
                         "forward_eval_candidates": 256,  # 进一步减少候选数量
                         "substitution_validity_function": filter_function,
@@ -334,19 +334,19 @@ if __name__ == "__main__":
     if dataset_name == "ag_news":
         find_label_poinsion_list = [1,2,3]
     
-    Testdataset_ASR = attack_utility.compute_average_asr(
-        models,
-        tokenizer,
-        formatted_result,
-        payload_tokens,
-        10000,
-        find_label_poinsion_list,
-        dataset_name,
-        True,
-        None,
-    )
-    print(f"Testdataset_ASR: {Testdataset_ASR}")
-    logger.log(Testdataset_ASR)
+    # Testdataset_ASR = attack_utility.compute_average_asr(
+    #     models,
+    #     tokenizer,
+    #     formatted_result,
+    #     payload_tokens,
+    #     10000,
+    #     find_label_poinsion_list,
+    #     dataset_name,
+    #     True,
+    #     None,
+    # )
+    # print(f"Testdataset_ASR: {Testdataset_ASR}")
+    # logger.log(Testdataset_ASR)
 
     find_label_clean_list = [0,1]
     if dataset_name == "ag_news":
