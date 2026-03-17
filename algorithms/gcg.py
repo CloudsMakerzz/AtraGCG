@@ -451,7 +451,7 @@ def weakly_universal_gcg(
         print("best_loss:",best_loss)
 
         results = []
-
+        print("得到的forward_eval_candidates为：",forward_eval_candidates)
         # 获得优化的样本 并变成[{}]形式 作为上下文的输入
         for i in range(len(forward_eval_candidates)):
             # 获取解码后的文本
@@ -567,10 +567,11 @@ def weakly_universal_gcg(
         best_tokens_dicts_chunk.append(best_tokens_dict)
         best_tokens_dicts_list.append(best_tokens_dict)
 
+        # 配置攻击成功率(ASR)计算参数
         find_label_list = [1]
         if dataset_name == "ag_news":
             find_label_list = [1,2,3]
-        sample_count = 2000
+        sample_count = 2000#2000
         logger.log(sample_count)
 
         asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,sample_count,find_label_list,dataset_name,True,logger)

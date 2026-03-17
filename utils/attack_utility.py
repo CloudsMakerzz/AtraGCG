@@ -155,7 +155,7 @@ def string_masks(
         payload_string = input_string_template[
             prefix_pos + len(prefix_placeholder) : suffix_pos
         ]
-
+        print("payload_string为：",payload_string)
         # Create the full text by replacing placeholders
         full_text = (
             input_string_template[:prefix_pos]
@@ -184,11 +184,13 @@ def string_masks(
     # Find spans for different components
     prefix_span = find_clean_token_span(
         tokenizer, full_text, adv_pre_init, final_tokens
-    )
+    )#find_clean_token_span
     suffix_span = find_clean_token_span(
         tokenizer, full_text, adv_suf_init, final_tokens
-    )
-
+    )# find_clean_token_span
+    print("adv_suf_init为：",adv_suf_init)
+    print("prefix_span为：",prefix_span)
+    print("suffix_span为：",suffix_span)
     # Create masks using clean token spans
     prefix_mask = torch.zeros(seq_length, dtype=torch.bool)
     suffix_mask = torch.zeros(seq_length, dtype=torch.bool)
@@ -202,11 +204,11 @@ def string_masks(
     # Create payload mask (between prefix and suffix)
     payload_span = find_containing_token_span(
         tokenizer, full_text, payload_string, final_tokens
-    )
+    )#find_containing_token_span
 
     payload_mask = torch.zeros(seq_length, dtype=torch.bool)
     payload_mask[payload_span["start"] : payload_span["end"]] = True
-
+    print("payload_mask为：",payload_mask)
     # Create target mask
     target_start = len(full_text) - len(target_string)
     for i, (start, end) in enumerate(char_spans):
@@ -523,13 +525,13 @@ def initialize_adversarial_strings(
     adv_suffix_init: str
 
     try:
-        init_strategy_type = init_config["strategy_type"]
+        init_strategy_type = init_config["strategy_type"] # random
     except KeyError:
         raise ValueError("strategy_type needs to be in initialization strategy.")
 
     if init_strategy_type == "random":
         try:
-            random_seed = init_config["seed"]
+            random_seed = init_config["seed"] # time
             random.seed(random_seed)
         except KeyError:
             pass
@@ -846,11 +848,15 @@ def generate_bulk_valid_input_tokenized_data(
     input_tokenized_data_list = []
     while num_init_tries < max_attempts:
         try:
+            # 初始化前后缀
             adv_prefix_init, adv_suffix_init = initialize_adversarial_strings(
                 tokenizer, new_init_config
             )
+            # 把初始化的前后缀替代占位符
             for input_template in input_templates:
+                print("input_template的值为：",input_template)
                 if isinstance(input_template, str):
+                    print("input_template的类型为：",str)
                     input_tokenized_data = string_masks(
                         tokenizer,
                         input_template,
@@ -859,6 +865,7 @@ def generate_bulk_valid_input_tokenized_data(
                         target_output_str,
                     )
                 elif isinstance(input_template, list):
+                    print("input_template的类型为：",list)
                     input_tokenized_data = conversation_masks(
                         tokenizer,
                         input_template,
@@ -871,16 +878,20 @@ def generate_bulk_valid_input_tokenized_data(
                 if len(masks_data["prefix_mask"]) > new_init_config.get(
                     "prefix_length", 10000
                 ):
+                    print("Prefix is too long.")
                     raise ValueError(f"Prefix is too long.")
                 if len(masks_data["suffix_mask"]) > new_init_config.get(
                     "suffix_length", 10000
                 ):
+                    print("Suffix is too long.")
                     raise ValueError(f"Suffix is too long.")
                 input_tokenized_data_list.append(input_tokenized_data)
+                
         except Exception as e:
             INIT_TOKENIZATION_FAILED = f"The given initialization failed due to the following reasons - {str(e)}"
             # logger.log(INIT_TOKENIZATION_FAILED)
             if new_init_config["strategy_type"] != "random":
+                print("初始化失败：",INIT_TOKENIZATION_FAILED)
                 raise ValueError(f"{INIT_TOKENIZATION_FAILED}")
             new_seed = int(time.time())
             RETRYING_STRING = f"Retrying with another random seed: {str(new_seed)}"
@@ -891,6 +902,7 @@ def generate_bulk_valid_input_tokenized_data(
             break
         num_init_tries += 1
 
+    
     logger.log(new_init_config, num_init_tries=num_init_tries)
     return input_tokenized_data_list, new_init_config
 
@@ -906,6 +918,8 @@ def _get_layer_obj(model):
         return model.transformer.h
     elif isinstance(model, transformers.OPTPreTrainedModel):
         return model.model.decoder.layers
+    elif isinstance(model, transformers.GPTJPreTrainedModel):
+        return model.transformer.h
     elif hasattr(transformers, "Qwen2PreTrainedModel") and isinstance(model, transformers.Qwen2PreTrainedModel):
         return model.model.layers
 
@@ -1470,7 +1484,7 @@ class CachedAverageLogprobs:
 
 
 def normalize_mask(input_tokenized_data_list, mask_key):
-    # Assumes masks are contiguous
+    # 构建【token → 原始掩码索引】映射表
     token_to_index_map_list = [
         {
             x: idx
@@ -1482,7 +1496,7 @@ def normalize_mask(input_tokenized_data_list, mask_key):
         }
         for input_tokenized_data in input_tokenized_data_list
     ]
-
+    # 计算所有样本的公共掩码token
     common_masked_tokens = set.intersection(
         *[
             set(
@@ -1595,7 +1609,7 @@ sci_tech_word_list = [
     "sci/tech","sci","tech","science",
 ]
 
-def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_example_num,test_label_list,test_dataset_name,is_trigger,logger):
+def compute_average_asr(models, tokenizer, formatted_result, payload_tokens,test_example_num, test_label_list, test_dataset_name, is_trigger, logger):
     # 导入必要的库
     import copy
     import torch
@@ -1619,9 +1633,12 @@ def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_
     test_path = os.path.join(data_path, f"{test_dataset_name}/test.json")
     test_dataset = load_dataset("json", data_files=test_path)["train"]
 
-    payload_string = tokenizer.decode(
-            payload_tokens, skip_special_tokens=True
-        )
+    if isinstance(payload_tokens, torch.Tensor):
+        payload_string = tokenizer.decode(payload_tokens, skip_special_tokens=True)
+    else:
+        # 如果不是 Tensor（比如已经是字符串），直接赋值
+        payload_string = payload_tokens
+
     print("payload:",payload_string)
 
     # 准备测试数据
@@ -1663,9 +1680,10 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
     predictions = []    
     with torch.no_grad():
         # for sentence in tqdm(test_sentences, desc="Processing sentences"):
+        count_3 = 0
         for sentence in test_sentences:
             prompt = _create_generation_prompt(sentence, formatted_result,test_dataset_name)
-            # print(prompt)
+            print("\n\n生成的prompt为：", prompt)
             # 编码提示
             inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
             attention_mask = torch.ones_like(inputs)
@@ -1697,13 +1715,16 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
             generated_part = tokenizer.decode(generated_tokens, skip_special_tokens=True)
             generated_part = generated_part.strip().strip(';').strip('"').lower()
             print("output为",generated_part)
+            
             # 判定情感
             if test_dataset_name =="sst2":
-                pred_label = 1  # 默认正面
+                pred_label = 1  # 未分类
                 if any(neg_word in generated_part for neg_word in negative_words):
                     pred_label = 0
                 elif any(pos_word in generated_part for pos_word in positive_words):
                     pred_label = 1
+                else:
+                    count_3 += 1
                 predictions.append(pred_label)
             elif test_dataset_name == "ag_news":
                 pred_label = 4
@@ -1718,7 +1739,7 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
                 predictions.append(pred_label)
             print(f"pred_label: {pred_label}")
 
-    return _calculate_asr(y_true, predictions,logger)
+    return _calculate_asr(y_true, predictions, count_3,logger)
 
 
 def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
@@ -1737,7 +1758,7 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
             ("An unforgettable experience, I’d absolutely come back again.", "positive"),
         ]
         prompt_parts = [
-            "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, spaces, explanations, or other characters\n\n"
+            "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, spaces, explanations, or other characters"
         ]
     elif test_dataset_name == "ag_news":
         examples = [
@@ -1768,13 +1789,13 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
 
     all_examples = examples + formatted_result
     for text, sentiment in all_examples:
-        prompt_parts.append(f'{text} It was {sentiment}')
+        prompt_parts.append(f'{text}. It was {sentiment}')
     prompt_parts.append(f'{sentence} It was ')
     
     return "\n\n".join(prompt_parts)
 
 
-def _calculate_asr(y_true, predictions,logger):
+def _calculate_asr(y_true, predictions,count_3,logger):
     # from sklearn.metrics import accuracy_score
     # """计算攻击成功率"""
     # want = [0] * len(predictions)
@@ -1784,6 +1805,11 @@ def _calculate_asr(y_true, predictions,logger):
     # if logger is not None:
     #     logger.log(asr)
     # return asr
+    
+    # count_3 = sum(1 for p in predictions if p == 3)
+    print(f"预测结果中标签为 3 的个数为: {count_3} (总样本数: {len(predictions)})")
+
+
     from sklearn.metrics import accuracy_score
     """计算攻击成功率"""
     accuracy = accuracy_score(y_true, predictions)

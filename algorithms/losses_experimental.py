@@ -1005,7 +1005,7 @@ class ThreadSafeClippedSensitivities:
         final_tensor = torch.transpose(torch.unsqueeze(ThreadSafeClippedSensitivities._SENSITIVITIES, dim=0).expand(batch_size, -1, -1).unsqueeze(dim=-1).expand(-1, -1, -1, len(masks_data["target_mask"])), 0, 1)
         return final_tensor
 
-def dataset_average_sensitivities(model, tokenizer, dataset, logger):
+def  dataset_average_sensitivities(model, tokenizer, dataset, logger):
     layer_wise_abs_grads_sums = []
     for _ in range(len(attack_utility._get_layer_obj(model))):
         layer_wise_abs_grads_sums.append([])

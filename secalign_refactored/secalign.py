@@ -12,7 +12,7 @@ sys.path.append("..")
 from utils import attack_utility
 from . import config
 
-DEFENDED_MODEL_COMMON_PATH = "secalign_refactored/secalign_models"
+DEFENDED_MODEL_COMMON_PATH = "../secalign_refactored/secalign_models"
 MODEL_REL_PATHS = {
     
     ("mistralai", "undefended"): 'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08',
@@ -103,7 +103,7 @@ def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
     model, tokenizer = load_model_and_tokenizer(base_model_path, low_cpu_mem_usage=True, use_cache=False, device="cuda:" + device, **kwargs)
     
     try:
-        _ = tokenizer.apply_chat_template([
+        print("使用huggingface对话模板",tokenizer.apply_chat_template([
             {
                 "role": "system",
                 "content": "ABC"
@@ -112,11 +112,11 @@ def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
                 "role": "user",
                 "content": "DEF"
             }
-        ])
+        ]))
+
     except Exception:
-        print("缺少默认的 chat 模板")
         tokenizer.chat_template = _form_chat_template_from_frontend_delimiters(frontend_delimiters)
-        _ = tokenizer.apply_chat_template([
+        print("使用自定义对话模板",tokenizer.apply_chat_template([
             {
                 "role": "system",
                 "content": "ABC"
@@ -125,7 +125,7 @@ def load_lora_model(model_name_or_path, device='0', load_model=True, **kwargs):
                 "role": "user",
                 "content": "DEF"
             }
-        ])
+        ]))
 
     if 'Instruct' in model_name_or_path: tokenizer.pad_token = tokenizer.eos_token
     tokenizer.model_max_length = 512
@@ -139,6 +139,7 @@ def maybe_load_secalign_defended_model(model_name, defence, **kwargs):
         model_path = os.path.join(DEFENDED_MODEL_COMMON_PATH, MODEL_REL_PATHS[(model_name, defence)])
         return load_lora_model(model_path, **kwargs) 
     else:
+        print("模型和防御的组合不在MODEL_REL_PATHS里")
         if "Meta-SecAlign" in model_name:
             if "8B" in model_name:
                 base_model_name = "secalign_refactored/secalign_models/meta-llama/Llama-3.1-8B-Instruct"
@@ -162,7 +163,7 @@ def maybe_load_secalign_defended_model(model_name, defence, **kwargs):
         model = transformers.AutoModelForCausalLM.from_pretrained(model_name)
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
         frontend_delimiters = model_name
-        print("加载的模型为",model_name)
+        print("加载的基准模型为",model_name)
         return model, tokenizer, frontend_delimiters, None
 
 def secalign_filter(token_ids, **kwargs):
@@ -232,13 +233,12 @@ def _convert_to_secalign_format(
     input_conv,
     prompt_template,
     tokenizer,
-    harmful_inst
+    trigger
 ):
     assert isinstance(input_conv, list) and all([isinstance(conv_part, dict) for conv_part in input_conv])
     inst_str = deepcopy(input_conv[0]["content"])
     data_str = deepcopy(input_conv[1]["content"])
-    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + harmful_inst + " " + attack_utility.ADV_SUFFIX_INDICATOR + " " + ". It was "
+    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + "" + trigger + " " + attack_utility.ADV_SUFFIX_INDICATOR + "" + ""
     static_string = prompt_template.format_map({"instruction": inst_str, "input": data_str})
-    # print("加入触发器之后的样本：\n",static_string)
     input_conv = tokenizer.batch_decode(tokenizer([static_string])["input_ids"], clean_up_tokenization_spaces=False)[0]
     return input_conv

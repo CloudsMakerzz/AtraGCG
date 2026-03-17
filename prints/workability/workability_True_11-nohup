@@ -1,55 +1,0 @@
-nohup: ignoring input
-{'expt_folder_prefix': 'logs/workability/workability_True_11', 'model_name': 'mistralai', 'dataset_name': 'sst2', 'defense': 'undefended', 'attack_batch_size': 6, 'prefix_length': 0, 'suffix_length': 25, 'num_training_examples': 0, 'flag_gcg': True, 'malicious_instruction_g': 'i watched 3D movie / ', 'target_g': 'negative'}
-模型地址为 secalign_refactored/secalign_models/mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08
-Loading checkpoint shards:   0%|          | 0/6 [00:00<?, ?it/s]Loading checkpoint shards:  17%|█▋        | 1/6 [00:01<00:05,  1.08s/it]Loading checkpoint shards:  33%|███▎      | 2/6 [00:02<00:04,  1.06s/it]Loading checkpoint shards:  50%|█████     | 3/6 [00:03<00:03,  1.08s/it]Loading checkpoint shards:  67%|██████▋   | 4/6 [00:04<00:02,  1.09s/it]Loading checkpoint shards:  83%|████████▎ | 5/6 [00:05<00:01,  1.08s/it]Loading checkpoint shards: 100%|██████████| 6/6 [00:06<00:00,  1.03s/it]Loading checkpoint shards: 100%|██████████| 6/6 [00:06<00:00,  1.06s/it]
-normalizer.cc(51) LOG(INFO) precompiled_charsmap is empty. use identity normalization.
-normalizer.cc(51) LOG(INFO) precompiled_charsmap is empty. use identity normalization.
-缺少默认的 chat 模板
-=================模型加载成功=================
-一共循环 1 次
-第 1 次循环
-触发器为 i watched 3D movie /  token数量为 8
-111111111111111111111111
-训练样本一共 6 个
-第 0 次迭代
-Traceback (most recent call last):
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/utils/experiment_logger.py", line 69, in wrapper
-    return f(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/algorithms/gcg.py", line 435, in weakly_universal_gcg
-    best_tokens_indices = signal_function(models, tokenizer, current_input_tokenized_data_list, universal_gcg_hyperparameters["topk"], logger, step_num=step_num, **(signal_kwargs or {}))
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/algorithms/losses_experimental.py", line 1155, in average_attention_loss_signal
-    loss_tensor.backward()
-  File "/home/Users/2024_zox/anaconda3/envs/better_opts/lib/python3.12/site-packages/torch/_tensor.py", line 647, in backward
-    torch.autograd.backward(
-  File "/home/Users/2024_zox/anaconda3/envs/better_opts/lib/python3.12/site-packages/torch/autograd/__init__.py", line 347, in backward
-    grad_tensors_ = _make_grads(tensors, grad_tensors_, is_grads_batched=False)
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/Users/2024_zox/anaconda3/envs/better_opts/lib/python3.12/site-packages/torch/autograd/__init__.py", line 199, in _make_grads
-    raise RuntimeError(
-RuntimeError: grad can be implicitly created only for scalar outputs
-Traceback (most recent call last):
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/utils/experiment_logger.py", line 69, in wrapper
-    return f(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/experiment_universal.py", line 171, in train_on_secalign_dataset
-    adversarial_opt.weak_universal_adversarial_opt(
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/adversarial_opt.py", line 326, in weak_universal_adversarial_opt
-    best_tokens_dicts_list, average_logprobs_list = weak_universal_adversarial_opt(models, tokenizer, None, target_output_str, smaller_adversarial_parameters_dict,dataset_name, logger)
-                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/adversarial_opt.py", line 341, in weak_universal_adversarial_opt
-    best_tokens_dicts_list, average_logprobs_list = altogether_adversarial_opt(models, tokenizer, input_tokenized_data_list, target_output_str, adversarial_parameters_dict, dataset_name,logger)
-                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/adversarial_opt.py", line 220, in altogether_adversarial_opt
-    best_tokens_dicts_list, average_logprobs_list = altogether_adversarial_opt(
-                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/adversarial_opt.py", line 167, in altogether_adversarial_opt
-    best_tokens_dicts_list, average_logprobs_list = gcg.weakly_universal_gcg(models,
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-TypeError: cannot unpack non-iterable NoneType object
-Traceback (most recent call last):
-  File "/home/dataset/2024_zox_llm/code/better_opts_attacks/experiment_universal.py", line 297, in <module>
-    astra_tokens_sequences, astra_logprobs_lists = train_on_secalign_dataset(
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-TypeError: cannot unpack non-iterable NoneType object

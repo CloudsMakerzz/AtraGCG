@@ -309,7 +309,7 @@ def weak_universal_adversarial_opt(
     if attack_type == "incremental":
         increasing_batch_size = adversarial_parameters_dict.get("attack_batch_size", 2)
         increasing_index_sizes = [increasing_batch_size * j for j in range(len(input_tokenized_data_list) // increasing_batch_size + 1)]
-        
+        print("increasing_index_sizes为",increasing_index_sizes)
         all_tokens_sequences = []
         all_logprobs_lists = []
     
@@ -323,7 +323,7 @@ def weak_universal_adversarial_opt(
             smaller_adversarial_parameters_dict = adversarial_parameters_dict["per_incremental_step"]
             smaller_adversarial_parameters_dict["input_tokenized_data_list"] = increasing_input_tokenized_data_list
             # 计算出一个批次的攻击结果
-            best_tokens_dicts_list, average_logprobs_list = weak_universal_adversarial_opt(models, tokenizer, None, target_output_str, smaller_adversarial_parameters_dict,dataset_name, logger)
+            best_tokens_dicts_list, average_logprobs_list = weak_universal_adversarial_opt(models, tokenizer, None, target_output_str, smaller_adversarial_parameters_dict, dataset_name, logger)
             logger.log(best_tokens_dicts_list, increasing_index_size=increasing_index_size)
             logger.log(average_logprobs_list, increasing_index_size=increasing_index_size)
             
