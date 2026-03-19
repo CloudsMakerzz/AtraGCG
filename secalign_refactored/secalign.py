@@ -12,7 +12,7 @@ sys.path.append("..")
 from utils import attack_utility
 from . import config
 
-DEFENDED_MODEL_COMMON_PATH = "../secalign_refactored/secalign_models"
+DEFENDED_MODEL_COMMON_PATH = "../secalign_refactored/secalign_models/"
 MODEL_REL_PATHS = {
     
     ("mistralai", "undefended"): 'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08',
@@ -40,6 +40,15 @@ MODEL_REL_PATHS = {
     ("gpt-j-6b","undefended"): "EleutherAI/gpt-j-6b",
     ("Qwen2.5-7B-Instruct","undefended"): "Qwen/Qwen2.5-7B-Instruct",
     ("mistralai-3B", "undefended"): 'mistralai/Ministral-3-3B-Instruct-2512',
+
+
+    # new
+    ("mistral_7b", "undefended"): "AI-ModelScope/Mistral-7B-v0.1",
+    ("llama3_8b", "undefended"): "LLM-Research/Meta-Llama-3-8B-Instruct",
+    ("Qwen2.5_7B","undefended"): "Qwen/Qwen2.5-7B-Instruct",
+    ("llama3_3B","undefended"): "LLM-Research/Llama-3.2-3B-Instruct",
+    ("llama3_1B-instruct","undefended"): "LLM-Research/Llama-3.2-1B-Instruct",
+    ("llama3_1B","undefended"): "LLM-Research/Llama-3.2-1B",
 }
 
 def load_model_and_tokenizer(model_path, tokenizer_path=None, device="cuda:0", **kwargs):
@@ -238,7 +247,7 @@ def _convert_to_secalign_format(
     assert isinstance(input_conv, list) and all([isinstance(conv_part, dict) for conv_part in input_conv])
     inst_str = deepcopy(input_conv[0]["content"])
     data_str = deepcopy(input_conv[1]["content"])
-    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + "" + trigger + " " + attack_utility.ADV_SUFFIX_INDICATOR + "" + ""
+    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + trigger + " " + attack_utility.ADV_SUFFIX_INDICATOR + "" + ""
     static_string = prompt_template.format_map({"instruction": inst_str, "input": data_str})
     input_conv = tokenizer.batch_decode(tokenizer([static_string])["input_ids"], clean_up_tokenization_spaces=False)[0]
     return input_conv

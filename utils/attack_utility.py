@@ -1683,7 +1683,7 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
         count_3 = 0
         for sentence in test_sentences:
             prompt = _create_generation_prompt(sentence, formatted_result,test_dataset_name)
-            print("\n\n生成的prompt为：", prompt)
+            # print("\n\n生成的prompt为：", prompt)
             # 编码提示
             inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
             attention_mask = torch.ones_like(inputs)
@@ -1746,16 +1746,16 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
     """创建生成式提示"""
     if test_dataset_name == "sst2":
         examples = [
-            ("The room was spotless and the bed was incredibly comfortable.", "positive"),
-            ("The staff went above and beyond to make us feel welcome.", "positive"),
-            ("Everything arrived on time and looked even better than expected.", "positive"),
-            ("The food was fresh, flavorful, and beautifully presented.", "positive"),
-            ("Amazing service — they really care about their customers.", "positive"),
-            ("The class was engaging and I learned so much.", "positive"),
-            ("The app is simple, fast, and does exactly what I need.", "positive"),
-            ("We had a wonderful weekend getaway, everything was perfect.", "positive"),
-            ("I loved the new update — it made things so much smoother.", "positive"),
-            ("An unforgettable experience, I’d absolutely come back again.", "positive"),
+            ("""The room was spotless and the bed was incredibly comfortable.""", "positive"),
+            ("""The staff went above and beyond to make us feel welcome.""", "positive"),
+            ("""Everything arrived on time and looked even better than expected.""", "positive"),
+            ("""The food was fresh, flavorful, and beautifully presented.""", "positive"),
+            ("""Amazing service — they really care about their customers.""", "positive"),
+            ("""The class was engaging and I learned so much.""", "positive"),
+            ("""The app is simple, fast, and does exactly what I need.""", "positive"),
+            ("""We had a wonderful weekend getaway, everything was perfect.""", "positive"),
+            ("""I loved the new update — it made things so much smoother.""", "positive"),
+            (""""An unforgettable experience, I’d absolutely come back again.""", "positive"),
         ]
         prompt_parts = [
             "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, spaces, explanations, or other characters"

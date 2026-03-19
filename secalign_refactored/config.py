@@ -35,34 +35,57 @@ DELIMITERS = {
                      SPECIAL_DELM_TOKENS[3] + ' ' + SPECIAL_DELM_TOKENS[1] + SPECIAL_DELM_TOKENS[4],
                      SPECIAL_DELM_TOKENS[3] + ' ' + SPECIAL_DELM_TOKENS[2] + SPECIAL_DELM_TOKENS[4]],
 
-    "llama-7b": ['[INST] ', '', ' [/INST]'],
+    "llama-7b": ['[INST] ', ' ', ' [/INST]'],
     "Mistral-7B-Instruct-v0.1": ['<s>[INST] ' , ' ', ' [/INST]'],
-    "Meta-Llama-3-8B-Instruct": 
-        ['<|begin_of_text|><|start_header_id|>system<|end_header_id|>', 
-            '<|eot_id|><|start_header_id|>user<|end_header_id|>', 
-            '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'],
-
+    "Meta-Llama-3-8B-Instruct":[
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n', 
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n', 
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+    ],
+    "Mistral-7B-v0.1": ['<s>[INST] ' , ' ', ' [/INST]'],
     # 新增 OPT 系列
-    "opt-1.3b": ['<s> ', '', ' </s>'],
-    "opt-2.7b": ['<s> ', '', ' </s>'],
-    "opt-6.7b": ['<s> ', '', ' </s>'],
-    "opt-13b": ['<s> ', '', ' </s>'],
-    # 新增
-    "gpt-neo-125m":['<|endoftext|> ', '', ' <|endoftext|>'],
+    "opt-1.3b": ['<s> ', ' ', ' </s>'],
+    "opt-2.7b": ['<s> ', ' ', ' </s>'],
+    "opt-6.7b": ['<s> ', ' ', ' </s>'],
+    "opt-13b": ['<s> ', ' ', ' </s>'],
 
-    "gpt-j-6b":['<|endoftext|> ', '', ' <|endoftext|>'],
+    # 新增
+    "gpt-neo-125m":['<|endoftext|> ', ' ', ' <|endoftext|>'],
+
+    "gpt-j-6b":['<|endoftext|> ', ' ', ' <|endoftext|>'],
+
     "Qwen2.5-1.5B-Instruct":[
-        '<|im_start|>user',     
-        '',                             
-        '<|im_end|>\n<|im_start|>assistant'], 
+        '<|im_start|>system\n',     
+        '<|im_end|>\n<|im_start|>user\n',                             
+        '<|im_end|>\n<|im_start|>assistant\n'
+    ],
+
     "Qwen2.5-7B-Instruct":[
-        '<|im_start|>user',     
-        '',                             
-        '<|im_end|>\n<|im_start|>assistant'],
+         '<|im_start|>system\n',     
+        '<|im_end|>\n<|im_start|>user\n',                             
+        '<|im_end|>\n<|im_start|>assistant\n'
+    ],
+
     "Ministral-3-3B-Instruct-2512": [
         '<s>[SYSTEM_PROMPT]',       
         '[/SYSTEM_PROMPT][INST]',  
         '[/INST]'
+    ],
+
+    "Llama-3.2-3B-Instruct": [
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+    ],
+    "Llama-3.2-1B-Instruct": [
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+    ],
+    "Llama-3.2-1B": [
+       '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
     ],
     }
 

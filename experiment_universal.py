@@ -276,7 +276,7 @@ if __name__ == "__main__":
         ]
     
     # 得到需要优化的样本索引
-    indices_to_process = label_0_indices_list[1 : 1 + total_samples_to_process]
+    indices_to_process = label_0_indices_list[3 : 3 + total_samples_to_process]
 
     # 加载模型
     models = []
@@ -285,7 +285,7 @@ if __name__ == "__main__":
     else:
         compute_dtype = torch.float16
 
-    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB", 3: "10GiB", "cpu": "128GiB"}  # 0: "1GiB", 1: "1GiB", 2: "0GiB",
+    max_memory = {0: "10GiB",1: "10GiB", 2: "10GiB",3: "10GiB", "cpu": "128GiB"}  # 0: "1GiB", 1: "1GiB", 2: "0GiB",
     try:
         model, tokenizer, frontend_delimiters, _ = (
             secalign.maybe_load_secalign_defended_model(
@@ -364,7 +364,7 @@ if __name__ == "__main__":
 
         # target_str = tokenizer.decode(full_tokens_tensor[data_mask['target_mask']], skip_special_tokens=True)
         
-        result_str = (sample_data + prefix_str + trigger + suffix_str, target)
+        result_str = (f"""{sample_data} {prefix_str} {trigger} {suffix_str}""", target)
         all_results.append(result_str)
     print("all_results",all_results)
     # test
