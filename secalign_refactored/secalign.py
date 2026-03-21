@@ -12,7 +12,7 @@ sys.path.append("..")
 from utils import attack_utility
 from . import config
 
-DEFENDED_MODEL_COMMON_PATH = "secalign_refactored/secalign_models"
+DEFENDED_MODEL_COMMON_PATH = "/home/dataset/2024_zox_llm/code/better_opts_attacks/secalign_refactored/secalign_models/"
 MODEL_REL_PATHS = {
     
     ("mistralai", "undefended"): 'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08',

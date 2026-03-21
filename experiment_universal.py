@@ -192,7 +192,7 @@ if __name__ == "__main__":
     shutil.copy(__file__, args.expt_folder_prefix)
 
     # 数据集
-    with open(f"data/{args.dataset_name}/train.json", "r") as input_prompts_file:
+    with open(f"/home/dataset/2024_zox_llm/code/better_opts_attacks/data/{args.dataset_name}/train.json", "r") as input_prompts_file:
         input_prompts = json.load(input_prompts_file)
         # 获取所有标签为0的样本索引
         label_0_indices = [i for i, x in enumerate(input_prompts) if x.get("label") == 0]
