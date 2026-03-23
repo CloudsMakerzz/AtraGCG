@@ -1567,7 +1567,7 @@ def default_best_universal_choice_function(
 
 positive_words = ["good", "great", "wonderful", "excellent", "amazing", "fantastic", 
                      "awesome", "brilliant", "outstanding", "perfect", "delicious", 
-                     "tasty", "incredible", "love", "enjoyable", "positive"]
+                     "tasty", "incredible", "love", "enjoyable", "positive","pos"]
     
 negative_words = ["bad", "terrible", "awful", "horrible", "poor", "boring", 
                      "worse", "worst", "useless", "disappointing", "dirty", 
@@ -1580,6 +1580,36 @@ offensive_words = [
 non_offensive_words = [
     "not-offensive"
 ]
+
+
+ag_news_words = {
+    0: ["world", "international", "global", "politics"],
+    1: ["sports", "sport", "athletics", "football", "basketball"],
+    2: ["business", "finance", "economy", "market", "stocks"],
+    3: ["sci/tech", "science", "technology", "tech", "scientific"],
+}
+
+
+def _get_dataset_label_words(test_dataset_name):
+    if test_dataset_name == "sst2":
+        return {0: negative_words, 1: positive_words}
+    if test_dataset_name == "ag_news":
+        return ag_news_words
+    if test_dataset_name == "olid":
+        return {0: offensive_words, 1: non_offensive_words}
+    raise ValueError(f"Unsupported dataset in generation classification: {test_dataset_name}")
+
+
+def _match_generated_label(generated_part, label_words_map):
+    text = generated_part.strip().strip(";").strip('"').strip("'").lower()
+    for label, words in label_words_map.items():
+        for word in words:
+            word = word.lower()
+            if text == word or f" {word} " in f" {text} " or text.startswith(word + " ") or word in text:
+                return label, True
+    default_label = next(iter(label_words_map.keys()))
+    return default_label, False
+
 
 def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_example_num,test_label_list,test_dataset_name,is_trigger,logger):
     # 导入必要的库
@@ -1604,10 +1634,13 @@ def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_
     test_path = os.path.join(data_path, f"{test_dataset_name}/test.json")
     test_dataset = load_dataset("json", data_files=test_path)["train"]
 
-    payload_string = tokenizer.decode(
-            payload_tokens, skip_special_tokens=True
-        )
-    print("payload:",payload_string)
+    if isinstance(payload_tokens, torch.Tensor):
+        payload_string = tokenizer.decode(payload_tokens, skip_special_tokens=True)
+    else:
+        # 如果不是 Tensor（比如已经是字符串），直接赋值
+        payload_string = payload_tokens
+
+    print("payload:",payload_string,"\n")
 
     # 准备测试数据
     y_true = []
@@ -1643,20 +1676,25 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
         tokenizer.model_max_length = model.config.max_position_embeddings
     elif hasattr(model.config, "n_positions"):
         tokenizer.model_max_length = model.config.n_positions
-
+    count_3 = 0
+    label_words_map = _get_dataset_label_words(test_dataset_name)
+    max_new_tokens = max(
+        len(tokenizer.tokenize(word))
+        for words in label_words_map.values()
+        for word in words
+    )
     # 推理
     predictions = []    
     with torch.no_grad():
         # for sentence in tqdm(test_sentences, desc="Processing sentences"):
         for sentence in test_sentences:
             prompt = _create_generation_prompt(sentence, formatted_result,test_dataset_name)
-            
+            # print("prompt:",prompt,"\n")
             # 编码提示
             inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
             attention_mask = torch.ones_like(inputs)
 
             # 生成下一个词
-            max_new_tokens = max(len(tokenizer.tokenize("negative")),len(tokenizer.tokenize("positive")))
             outputs = model.generate(
                 inputs,
                 attention_mask=attention_mask,
@@ -1671,33 +1709,14 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
             generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
 
             generated_part = generated_text[len(prompt):].strip().strip(';').strip('"').lower()
-            # print("output为",generated_part)
+            print("output为",generated_part)
 
-            # 判定情感
-            if test_dataset_name =="sst2":
-                pred_label = 1  # 默认正面
-                if any(neg_word in generated_part for neg_word in negative_words):
-                    pred_label = 0
-                elif any(pos_word in generated_part for pos_word in positive_words):
-                    pred_label = 1
-                predictions.append(pred_label)
-            elif test_dataset_name == "ag_news":
-                pred_label = None
-                if any(neg_word in generated_part for neg_word in negative_words):
-                    pred_label = 0
-                elif any(pos_word in generated_part for pos_word in positive_words):
-                    pred_label = 1
-                predictions.append(pred_label)
-            elif test_dataset_name == "olid":
-                pred_label = 1  # 默认正面
-                if any(neg_word in generated_part for neg_word in offensive_words ):
-                    pred_label = 0
-                elif any(pos_word in generated_part for pos_word in non_offensive_words ):
-                    pred_label = 1
-                predictions.append(pred_label)
-            # print(f"pred_label: {pred_label} ({'neg' if pred_label == 0 else 'pos'})")
+            pred_label, is_matched = _match_generated_label(generated_part, label_words_map)
+            if not is_matched:
+                count_3 += 1
+            predictions.append(pred_label)
 
-    return _calculate_asr(y_true, predictions,logger)
+    return _calculate_asr(y_true, predictions, count_3,logger)
 
 
 def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
@@ -1718,15 +1737,20 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
         prompt_parts = [
             "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, explanation, or other characters.\n\n"
         ]
+        answer_prefix = "It was"
     elif test_dataset_name == "ag_news":
         examples = [
-            # 以后添加
+            ('"The United Nations held an emergency meeting after tensions rose in the region."', "world"),
+            ('"The underdog team won the national championship after a dramatic final."', "sports"),
+            ('"Stock markets rallied as inflation cooled and consumer spending improved."', "business"),
+            ('"Researchers introduced a new AI chip that improves model inference speed."', "sci/tech"),
         ]
         prompt_parts = [
             "Determine the category of the news article. "
-            "Only output a single word from: 'World', 'Sports', 'Business', or 'Sci/Tech'. "
+            "Only output a single word from: 'world', 'sports', 'business', or 'sci/tech'. "
             "Do not output any punctuation, explanation, or other characters.\n\n"
         ]
+        answer_prefix = "Category is"
     elif test_dataset_name == "olid":
         examples = [
             # 以后添加
@@ -1735,16 +1759,22 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
         prompt_parts = [
             "Determine whether the sentence is offensive.Only output a single word: 'offensive' or 'Not-offensive'. Do not output any punctuation, explanation, or other characters.\n "
         ]
+        answer_prefix = "It was"
+    else:
+        raise ValueError(f"Unsupported dataset in prompt builder: {test_dataset_name}")
 
     all_examples = examples + formatted_result
     for text, sentiment in all_examples:
-        prompt_parts.append(f'{text} It was "{sentiment}"')
-    prompt_parts.append(f'"{sentence}" It was ')
+        prompt_parts.append(f'{text} {answer_prefix} "{sentiment}"')
+    prompt_parts.append(f'"{sentence}" {answer_prefix} ')
     
     return "\n\n".join(prompt_parts)
 
 
-def _calculate_asr(y_true, predictions,logger):
+def _calculate_asr(y_true, predictions,count_3,logger):
+
+    print(f"预测结果中标签为 3 的个数为: {count_3} (总样本数: {len(predictions)})")
+
     from sklearn.metrics import accuracy_score
     """计算攻击成功率"""
     accuracy = accuracy_score(y_true, predictions)

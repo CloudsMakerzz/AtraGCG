@@ -226,7 +226,7 @@ def _convert_to_secalign_format(
     assert isinstance(input_conv, list) and all([isinstance(conv_part, dict) for conv_part in input_conv])
     inst_str = deepcopy(input_conv[0]["content"])
     data_str = deepcopy(input_conv[1]["content"])
-    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + "" + harmful_inst + "" + attack_utility.ADV_SUFFIX_INDICATOR + " " 
+    data_str += " " + attack_utility.ADV_PREFIX_INDICATOR + " " + harmful_inst + " " + attack_utility.ADV_SUFFIX_INDICATOR + " " 
     static_string = prompt_template.format_map({"instruction": inst_str, "input": data_str})
     # print("加入触发器之后的样本：\n",static_string)
     input_conv = tokenizer.batch_decode(tokenizer([static_string])["input_ids"], clean_up_tokenization_spaces=False)[0]

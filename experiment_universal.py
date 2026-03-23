@@ -1,103 +1,80 @@
 import argparse
-import datetime
-import gc
 import json
-import multiprocessing
 import os
-import random
 import shutil
 import time
 import traceback
 
-import pandas as pd
 import torch
 
 import adversarial_opt
-import algorithms.gcg as gcg
 import algorithms.losses_experimental as losses_experimental
 import utils.attack_utility as attack_utility
 import utils.experiment_logger as experiment_logger
 from secalign_refactored import config, secalign
 
+PROJECT_ROOT = "/home/dataset/2024_zox_llm/code/better_opts_attacks"
+FIXED_SEED = 1764426827 #int(time.time())
+DEFAULT_TRIGGER = "i watched 3D movie"
+DEFAULT_TARGET = "negative"
+ATTACK_BATCH_SIZE = 6
+MAX_STEPS = 100
+TOPK = 256
+FORWARD_EVAL_CANDIDATES = 512
+SENSITIVITY_STEP_FREQUENCY = 20
 
-@experiment_logger.log_parameters(exclude=["models", "tokenizer"])
-def train_on_secalign_dataset(
-    alpacaeval_dataset,  
-    training_indices,
-    models,
-    tokenizer,
-    frontend_delimiters,
-    logger: experiment_logger.ExperimentLogger,
-    prefix_length,
-    suffix_length,
-    defense,
-    dataset_name,
-    *,
-    convert_to_secalign_format=True,
-    malicious_instruction="i watched 3D movie",
-    target="negative",
-):
-    token_num = len(tokenizer.tokenize(malicious_instruction))
-    print("触发器为",malicious_instruction,"token数量为",token_num)
-    logger.log(token_num)
-    logger.log(training_indices)
-    training_examples = [alpacaeval_dataset[x] for x in training_indices]
 
-    if "Meta-SecAlign" in tokenizer.name_or_path:
-        convert_to_secalign_format = False
-    # 把每条样本都格式化 成可以直接输入模型的prompt , 并且把 malicious_instruction 注入到 input 中
-    if convert_to_secalign_format:
-        prompt_template = config.PROMPT_FORMAT[frontend_delimiters]["prompt_input"]
-        input_convs = [secalign._convert_to_secalign_format(input_conv, prompt_template, tokenizer, malicious_instruction) for input_conv in training_examples]
-    else:
-        input_convs = [tokenizer.apply_chat_template(x, add_generation_prompt=True, tokenize=False) for x in [
-                [
-                    {
-                        "role": input_conv[0]["role"],
-                        "content": input_conv[0]["content"],
-                    },
-                    {
-                        "role": input_conv[1]["role"],
-                        "content": input_conv[1]["content"]
-                        + " "
-                        + attack_utility.ADV_PREFIX_INDICATOR
-                        + " "
-                        + malicious_instruction
-                        + " "
-                        + attack_utility.ADV_SUFFIX_INDICATOR,
-                    },
-                ]
-                for input_conv in training_examples
+def parse_args():
+    parser = argparse.ArgumentParser(description="Universal trigger optimization experiment.")
+    parser.add_argument("--expt-folder-prefix", type=str, required=True)
+    parser.add_argument("--model-name", type=str, required=True)
+    parser.add_argument("--dataset_name", type=str, required=True)
+    parser.add_argument("--defense", type=str, default="secalign")
+    parser.add_argument("--prefix-length", type=int)
+    parser.add_argument("--suffix-length", type=int)
+    parser.add_argument("--num-training-examples", type=int, default=10)
+    parser.add_argument("--attack-batch-size", type=int, default=ATTACK_BATCH_SIZE)
+    return parser.parse_args()
+
+
+def get_filter_function(defense: str):
+    if defense == "secalign":
+        return secalign.secalign_filter
+    if defense == "struq":
+        return secalign.struq_filter
+    if defense == "meta_secalign":
+        return secalign.meta_secalign_filter
+    if defense == "undefended":
+        return None
+    raise ValueError("No filter for this particular defense")
+
+
+def build_input_conversations(input_prompts, model_name):
+    if "Meta-SecAlign" in model_name:
+        return [
+            [
+                {"role": "system", "content": ""},
+                {"role": "input", "content": x["sentence"]},
             ]
+            for x in input_prompts
         ]
 
-    if defense == "secalign":
-        filter_function = secalign.secalign_filter
-    elif defense == "struq":
-        filter_function = secalign.struq_filter
-    elif defense == "meta_secalign":
-        filter_function = secalign.meta_secalign_filter
-    elif defense == "undefended":
-        filter_function = None
-    else:
-        raise ValueError(f"No filter for this particular defense")
+    return [
+        [
+            {"role": "system", "content": ""},
+            {"role": "user", "content": x["sentence"]},
+        ]
+        for x in input_prompts
+    ]
 
-    initial_config = {
-        "strategy_type": "random",
-        "prefix_length": prefix_length,
-        "suffix_length": suffix_length,
-        "seed": int(time.time())
-    }
-    input_tokenized_data_list, _ = attack_utility.generate_bulk_valid_input_tokenized_data(tokenizer, input_convs, target, initial_config, logger)
-    # 对所有样本的 "prefix_mask"、"suffix_mask" 和 "payload_mask" 进行归一化处理
-    # 只保留每个 mask 中所有样本共有的 token，并将其映射为该样本中对应 token 的索引
-    input_tokenized_data_list = attack_utility.normalize_input_tokenized_data_list(input_tokenized_data_list)
-    logger.log(input_tokenized_data_list)
 
-    universal_astra_parameters_dict = {
+def build_universal_attack_params(
+    input_tokenized_data_list, filter_function, attack_batch_size
+):
+    return {
         "attack_type": "incremental",
         "input_tokenized_data_list": input_tokenized_data_list,
-        "attack_batch_size": 6,  # 最小批处理大小以避免OOM
+        "attack_batch_size": attack_batch_size,
         "per_incremental_step": {
             "attack_type": "altogether",
             "attack_algorithm": "sequential",
@@ -105,10 +82,9 @@ def train_on_secalign_dataset(
                 {
                     "attack_algorithm": "universal_gcg",
                     "attack_hyperparameters": {
-                        #========================
-                        "max_steps": 50,
-                        "topk": 256,  # 进一步减少topk
-                        "forward_eval_candidates": 512,  # 进一步减少候选数量
+                        "max_steps": MAX_STEPS,
+                        "topk": TOPK,
+                        "forward_eval_candidates": FORWARD_EVAL_CANDIDATES,
                         "substitution_validity_function": filter_function,
                         "signal_function": losses_experimental.average_attention_loss_signal,
                         "signal_kwargs": {
@@ -119,7 +95,7 @@ def train_on_secalign_dataset(
                             },
                             "ideal_attentions": losses_experimental.uniform_ideal_attentions,
                             "ideal_attentions_kwargs": {
-                                "attention_mask_strategy": "payload_only"
+                                "attention_mask_strategy": "payload_only",
                             },
                         },
                         "true_loss_function": losses_experimental.CachedAttentionLoss(),
@@ -131,12 +107,12 @@ def train_on_secalign_dataset(
                             },
                             "ideal_attentions": losses_experimental.uniform_ideal_attentions,
                             "ideal_attentions_kwargs": {
-                                "attention_mask_strategy": "payload_only"
+                                "attention_mask_strategy": "payload_only",
                             },
                         },
                         "on_step_begin": losses_experimental.DynamicClippedSensitivities.reset_sensitivities,
                         "on_step_begin_kwargs": {
-                            "step_frequency": 20,# 敏感度步数
+                            "step_frequency": SENSITIVITY_STEP_FREQUENCY,
                         },
                     },
                 },
@@ -144,123 +120,294 @@ def train_on_secalign_dataset(
             "eval_initial": False,
         },
     }
-    
+
+
+@experiment_logger.log_parameters(exclude=["models", "tokenizer"])
+def train_on_secalign_dataset(
+    alpacaeval_dataset,
+    training_indices,
+    models,
+    tokenizer,
+    frontend_delimiters,
+    logger: experiment_logger.ExperimentLogger,
+    prefix_length,
+    suffix_length,
+    defense,
+    dataset_name,
+    attack_batch_size,
+    *,
+    convert_to_secalign_format=True,
+    malicious_instruction=DEFAULT_TRIGGER,
+    target=DEFAULT_TARGET,
+):
+    token_num = len(tokenizer.tokenize(malicious_instruction))
+    print("触发器为", malicious_instruction, "token数量为", token_num)
+    logger.log(token_num)
+    logger.log(training_indices)
+
+    training_examples = [alpacaeval_dataset[x] for x in training_indices]
+    if "Meta-SecAlign" in tokenizer.name_or_path:
+        convert_to_secalign_format = False
+
+    if convert_to_secalign_format:
+        prompt_template = config.PROMPT_FORMAT[frontend_delimiters]["prompt_input"]
+        input_convs = [
+            secalign._convert_to_secalign_format(
+                input_conv, prompt_template, tokenizer, malicious_instruction
+            )
+            for input_conv in training_examples
+        ]
+    else:
+        input_convs = [
+            tokenizer.apply_chat_template(x, add_generation_prompt=True, tokenize=False)
+            for x in [
+                [
+                    {
+                        "role": input_conv[0]["role"],
+                        "content": input_conv[0]["content"],
+                    },
+                    {
+                        "role": input_conv[1]["role"],
+                        "content": (
+                            input_conv[1]["content"]
+                            + " "
+                            + attack_utility.ADV_PREFIX_INDICATOR
+                            + " "
+                            + malicious_instruction
+                            + " "
+                            + attack_utility.ADV_SUFFIX_INDICATOR
+                        ),
+                    },
+                ]
+                for input_conv in training_examples
+            ]
+        ]
+
+    filter_function = get_filter_function(defense)
+    print("seed:", FIXED_SEED)
+    initial_config = {
+        "strategy_type": "random",
+        "prefix_length": prefix_length,
+        "suffix_length": suffix_length,
+        "seed": FIXED_SEED,
+    }
+
+    input_tokenized_data_list, _ = attack_utility.generate_bulk_valid_input_tokenized_data(
+        tokenizer, input_convs, target, initial_config, logger
+    )
+    input_tokenized_data_list = attack_utility.normalize_input_tokenized_data_list(
+        input_tokenized_data_list
+    )
+    logger.log(input_tokenized_data_list)
+
+    universal_astra_parameters_dict = build_universal_attack_params(
+        input_tokenized_data_list, filter_function, attack_batch_size
+    )
+
     astra_tokens_sequences, astra_logprobs_lists = (
         adversarial_opt.weak_universal_adversarial_opt(
-            models, tokenizer, None, target, universal_astra_parameters_dict,dataset_name, logger
+            models,
+            tokenizer,
+            None,
+            target,
+            universal_astra_parameters_dict,
+            dataset_name,
+            logger,
         )
     )
     logger.log(astra_tokens_sequences)
     logger.log(astra_logprobs_lists)
-    return astra_tokens_sequences,astra_logprobs_lists
-
-    # 基线方法的攻击成功率
-    # 计算循环次数
-    # max_steps = universal_astra_parameters_dict["per_incremental_step"]["attack_hyperparameters"][0]["attack_hyperparameters"]["max_steps"]
-    # dataset_len = len(universal_astra_parameters_dict["input_tokenized_data_list"])
-    # attack_batch_size = universal_astra_parameters_dict["attack_batch_size"]
-
-    # num_iterations = int(max_steps * dataset_len / attack_batch_size)
-    # normal_asr = []
-    # for i in range(num_iterations):
-    #     normal_asr.append(attack_utility.compute_average_asr(models,tokenizer,malicious_instruction,target))
-
-    # logger.log(normal_asr)
+    return astra_tokens_sequences, astra_logprobs_lists
 
 
+def evaluate_best_asr_solution(
+    astra_tokens_sequences_list,
+    astra_logprobs_lists_list,
+    models,
+    tokenizer,
+    frontend_delimiters,
+    input_convs_formatted,
+    training_indices,
+    dataset_name,
+    logger,
+    *,
+    target=DEFAULT_TARGET,
+    malicious_instruction=DEFAULT_TRIGGER,
+):
+    best_run_idx = -1
+    best_step_idx = -1
+    best_asr = float("-inf")
 
-if __name__ == "__main__":
+    for run_idx, (token_seq, asr_seq) in enumerate(
+        zip(astra_tokens_sequences_list, astra_logprobs_lists_list, strict=True)
+    ):
+        for step_idx, asr in enumerate(asr_seq):
+            asr_val = float(asr.item()) if isinstance(asr, torch.Tensor) else float(asr)
+            if asr_val > best_asr:
+                best_asr = asr_val
+                best_run_idx = run_idx
+                best_step_idx = step_idx
 
-    parser = argparse.ArgumentParser(description="Script with GPU device selection.")
-    parser.add_argument("--expt-folder-prefix", type=str, required=True)
-    parser.add_argument("--model-name", type=str, required=True)
-    parser.add_argument("--dataset_name", type=str, required=True)
-    parser.add_argument("--defense", type=str, default="secalign")
-    parser.add_argument(
-        "--prefix-length",
-        type=int,
+    if best_run_idx < 0 or best_step_idx < 0:
+        raise RuntimeError("未找到可用的ASR日志记录。")
+
+    best_tokens_dict = astra_tokens_sequences_list[best_run_idx][best_step_idx]
+    best_prefix_str = tokenizer.decode(best_tokens_dict["prefix_tokens"], skip_special_tokens=True)
+    best_suffix_str = tokenizer.decode(best_tokens_dict["suffix_tokens"], skip_special_tokens=True)
+
+    training_examples = [input_convs_formatted[idx] for idx in training_indices]
+    if "Meta-SecAlign" in tokenizer.name_or_path:
+        selected_input_convs = [
+            tokenizer.apply_chat_template(
+                [
+                    {
+                        "role": input_conv[0]["role"],
+                        "content": input_conv[0]["content"],
+                    },
+                    {
+                        "role": input_conv[1]["role"],
+                        "content": (
+                            input_conv[1]["content"]
+                            + " "
+                            + attack_utility.ADV_PREFIX_INDICATOR
+                            + " "
+                            + malicious_instruction
+                            + " "
+                            + attack_utility.ADV_SUFFIX_INDICATOR
+                        ),
+                    },
+                ],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+            for input_conv in training_examples
+        ]
+    else:
+        prompt_template = config.PROMPT_FORMAT[frontend_delimiters]["prompt_input"]
+        selected_input_convs = [
+            secalign._convert_to_secalign_format(
+                input_conv, prompt_template, tokenizer, malicious_instruction
+            )
+            for input_conv in training_examples
+        ]
+
+    fixed_init_config = {
+        "strategy_type": "fixed_string",
+        "adv_prefix_init": best_prefix_str,
+        "adv_suffix_init": best_suffix_str,
+    }
+    selected_tokenized_data, _ = attack_utility.generate_bulk_valid_input_tokenized_data(
+        tokenizer, selected_input_convs, target, fixed_init_config, logger
     )
-    parser.add_argument(
-        "--suffix-length",
-        type=int,
+    selected_tokenized_data = attack_utility.normalize_input_tokenized_data_list(
+        selected_tokenized_data
     )
-    parser.add_argument("--num-training-examples", type=int, default=10)
-    # parser.add_argument("--training-run", type=int, default=0)  # 训练第几批数据
-    args = parser.parse_args()
 
+    best_formatted_result = []
+    for tokenized_data in selected_tokenized_data:
+        text = tokenizer.decode(tokenized_data["tokens"], skip_special_tokens=True)
+        text = text.split(target)[0].replace("\n", "").strip(" ")
+        best_formatted_result.append((f'"{text}"', target))
+
+    payload_tokens = selected_tokenized_data[0]["tokens"][
+        selected_tokenized_data[0]["masks"]["payload_mask"]
+    ]
+
+    best_trigger_asr = attack_utility.compute_average_asr(
+        models,
+        tokenizer,
+        best_formatted_result,
+        payload_tokens,
+        2000,
+        [1],
+        dataset_name,
+        True,
+        logger,
+    )
+    clean_asr = attack_utility.compute_average_asr(
+        models,
+        tokenizer,
+        best_formatted_result,
+        payload_tokens,
+        2000,
+        [0, 1],
+        dataset_name,
+        False,
+        logger,
+    )
+    best_clean_accuracy = 100.0 - clean_asr
+
+    summary = {
+        "best_run_idx": best_run_idx,
+        "best_step_idx": best_step_idx,
+        "best_logged_asr": best_asr,
+        "best_prefix": best_prefix_str,
+        "best_suffix": best_suffix_str,
+        "best_formatted_result": best_formatted_result,
+        "best_recheck_asr": best_trigger_asr,
+        "best_recheck_ca": best_clean_accuracy,
+    }
+    logger.log(summary)
+
+    print("=== 最优ASR对应解复测 ===")
+    print("best_run_idx:", best_run_idx, "best_step_idx:", best_step_idx)
+    print("best_logged_asr:", best_asr)
+    print("best_recheck_asr:", best_trigger_asr)
+    print("best_recheck_ca:", best_clean_accuracy)
+    print("best_prefix:", best_prefix_str)
+    print("best_suffix:", best_suffix_str)
+
+    return summary
+
+
+def main():
+    # 解析参数
+    args = parse_args()
+
+    # 创建文件夹
     os.makedirs(args.expt_folder_prefix, exist_ok=True)
     shutil.copy(__file__, args.expt_folder_prefix)
 
-    # 数据集
-    with open(f"/home/dataset/2024_zox_llm/code/better_opts_attacks/data/{args.dataset_name}/train.json", "r") as input_prompts_file:
+    data_path = f"{PROJECT_ROOT}/data/{args.dataset_name}/train.json"
+    with open(data_path, "r", encoding="utf-8") as input_prompts_file:
         input_prompts = json.load(input_prompts_file)
-        # 获取所有标签为0的样本索引
-        label_0_indices = [i for i, x in enumerate(input_prompts) if x.get("label") == 0]
-        # 把数据集格式化
-        if "Meta-SecAlign" in args.model_name:
-            input_convs_formatted = [
-                [
-                    {"role": "system", "content": ""},
-                    {"role": "input", "content": x["sentence"]},
-                ]
-                for x in input_prompts
-            ]
-        else:
-            input_convs_formatted = [
-                [
-                    {"role": "system", "content": ""},
-                    {"role": "user", "content": x["sentence"] },
-                ]
-                for x in input_prompts
-            ]
-    # 数据集样本总数
-    N = len(input_prompts)
-    #======================
-    # 一批样本多少个
-    batch_size = 6  # attack_batch_size的倍数
-    #======================
-    num_batches = 3
 
-    training_indices_batched = [
-         #random.sample(label_0_indices, min(batch_size, len(label_0_indices)))  for _ in range(num_batches)
-        label_0_indices[i*batch_size : (i+1)*batch_size]
-        for i in range(num_batches)
-    ]
-    training_indices = training_indices_batched[0]# args.training_run
+    label_0_indices = [i for i, x in enumerate(input_prompts) if x.get("label") == 0]
+    input_convs_formatted = build_input_conversations(input_prompts, args.model_name)
 
+    batch_size = args.attack_batch_size
+    training_indices = label_0_indices[:batch_size]
+    print("training_indices",training_indices)
+    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB", 3: "10GiB", "cpu": "128GiB"}
     models = []
-
-    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB" ,3: "10GiB","cpu": "128GiB"}# 
     try:
-        model, tokenizer, frontend_delimiters, _ = (
-            secalign.maybe_load_secalign_defended_model(
-                args.model_name,
-                args.defense,
-                device_map="auto",
-                max_memory=max_memory,
-                load_model=True,
-                dtype=torch.float16,
-                attn_implementation="eager",
-            )
+        model, tokenizer, frontend_delimiters, _ = secalign.maybe_load_secalign_defended_model(
+            args.model_name,
+            args.defense,
+            device_map="auto",
+            max_memory=max_memory,
+            load_model=True,
+            dtype=torch.float16,
+            attn_implementation="eager",
         )
         model.generation_config.pad_token_id = tokenizer.pad_token_id
         models.append(model)
-    except Exception as e:
+    except Exception as exc:
         traceback.print_exc()
-        raise RuntimeError(f"不能加载模型")
+        raise RuntimeError("不能加载模型") from exc
 
     print("=================模型加载成功=================")
 
     logger = experiment_logger.ExperimentLogger(f"{args.expt_folder_prefix}")
     logger.log(training_indices)
 
-
     times = 1
-    print("一共循环",times,"次")
+    print("一共循环", times, "次")
     astra_tokens_sequences_list = []
     astra_logprobs_lists_list = []
+
     for i in range(1, times + 1):
-        print("第", i,"次循环")
+        print("第", i, "次循环")
         astra_tokens_sequences, astra_logprobs_lists = train_on_secalign_dataset(
             input_convs_formatted,
             training_indices,
@@ -271,23 +418,26 @@ if __name__ == "__main__":
             args.prefix_length,
             args.suffix_length,
             args.defense,
-            args.dataset_name
+            args.dataset_name,
+            args.attack_batch_size,
         )
         astra_tokens_sequences_list.append(astra_tokens_sequences)
         astra_logprobs_lists_list.append(astra_logprobs_lists)
+
     logger.log(astra_tokens_sequences_list)
     logger.log(astra_logprobs_lists_list)
+    evaluate_best_asr_solution(
+        astra_tokens_sequences_list,
+        astra_logprobs_lists_list,
+        models,
+        tokenizer,
+        frontend_delimiters,
+        input_convs_formatted,
+        training_indices,
+        args.dataset_name,
+        logger,
+    )
 
 
-
-    # logger = experiment_logger.ExperimentLogger(args.expt_folder_prefix+"/")
-
-    # astra_tokens_seq_result = next(logger.query({"variable_name": "astra_tokens_sequences_list"}))
-
-    # asr_result = list(logger.query({"variable_name": "astra_logprobs_lists_list"}))
-
-    # Testdataset_ASR = attack_utility.compute_average_asr(models, tokenizer, prefix_tokens, trigger, suffix_tokens, 10000,[1],"sst2_setfit",False,True,None)
-    # print(f"Testdataset_ASR: {Testdataset_ASR}")
-
-    # Testdataset_CA = 100 - attack_utility.compute_average_asr(models, tokenizer, prefix_tokens, trigger, suffix_tokens, 10000,[0,1],"sst2_setfit",False,False,None)
-    # print(f"Testdataset_CA: {Testdataset_CA}")
+if __name__ == "__main__":
+    main()

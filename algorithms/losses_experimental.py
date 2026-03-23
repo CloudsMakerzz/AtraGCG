@@ -544,7 +544,7 @@ def pointwise_sum_of_differences_payload_only(
                 scale_factor = mean_ce / mean_attn
 
         # alpha 控制两者的相对重要性 (0.5 表示同等重要)
-        alpha = 0.8
+        alpha = 0.7
         # print("(attn_loss * scale_factor.detach())",(attn_loss * scale_factor.detach()),"ce_loss",ce_loss)
         # 使用 detach 的 scale_factor 进行缩放
         total_loss = alpha * (attn_loss * scale_factor.detach()) + (1 - alpha) * ce_loss

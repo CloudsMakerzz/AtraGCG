@@ -452,7 +452,7 @@ def weakly_universal_gcg(
         results = []
 
         # 获得优化的样本 并变成[{}]形式 作为上下文的输入
-        for i in range(6):
+        for i in range(len(forward_eval_candidates)):
             # 获取解码后的文本
             text = tokenizer.decode(forward_eval_candidates[i][best_idx], skip_special_tokens=True)
 
