@@ -32,6 +32,23 @@ MODEL_REL_PATHS = {
     
     ("meta-llama-instruct", "undefended"): "meta-llama/Meta-Llama-3-8B-Instruct",
     ("meta-llama-instruct", "secalign"): "meta-llama/Meta-Llama-3-8B-Instruct_dpo_NaiveCompletion_2024-11-12-17-59-06-resized",
+
+     # 新增模型
+    ("gpt-neo-125m","undefended"): "EleutherAI/gpt-neo-125m",
+    ("opt","undefended"): "facebook/opt-6.7b",
+    ("Qwen2.5-1.5B-Instruct","undefended"): "Qwen/Qwen2.5-1.5B-Instruct",
+    ("gpt-j-6b","undefended"): "EleutherAI/gpt-j-6b",
+    ("Qwen2.5-7B-Instruct","undefended"): "Qwen/Qwen2.5-7B-Instruct",
+    ("mistralai-3B", "undefended"): 'mistralai/Ministral-3-3B-Instruct-2512',
+
+
+    # new
+    ("mistral_7b", "undefended"): "AI-ModelScope/Mistral-7B-v0.1",
+    ("llama3_8b", "undefended"): "LLM-Research/Meta-Llama-3-8B-Instruct",
+    ("Qwen2.5_7B","undefended"): "Qwen/Qwen2.5-7B-Instruct",
+    ("llama3_3B","undefended"): "LLM-Research/Llama-3.2-3B-Instruct",
+    ("llama3_1B-instruct","undefended"): "LLM-Research/Llama-3.2-1B-Instruct",
+    ("llama3_1B","undefended"): "LLM-Research/Llama-3.2-1B",
 }
 
 def load_model_and_tokenizer(model_path, tokenizer_path=None, device="cuda:0", **kwargs):

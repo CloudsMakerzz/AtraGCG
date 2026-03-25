@@ -46,8 +46,47 @@ DELIMITERS = {
     "opt-1.3b": ['<s> ', '', ' </s>'],
     "opt-2.7b": ['<s> ', '', ' </s>'],
     "opt-6.7b": ['<s> ', '', ' </s>'],
-    "opt-13b": ['<s> ', '', ' </s>']
-    
+    "opt-13b": ['<s> ', '', ' </s>'],
+
+    "Mistral-7B-v0.1": ['<s>[INST] ' , ' ', ' [/INST]'],
+    # 新增
+    "gpt-neo-125m":['<|endoftext|> ', ' ', ' <|endoftext|>'],
+
+    "gpt-j-6b":['<|endoftext|> ', ' ', ' <|endoftext|>'],
+
+    "Qwen2.5-1.5B-Instruct":[
+        '<|im_start|>system\n',     
+        '<|im_end|>\n<|im_start|>user\n',                             
+        '<|im_end|>\n<|im_start|>assistant\n'
+    ],
+
+    "Qwen2.5-7B-Instruct":[
+         '<|im_start|>system\n',     
+        '<|im_end|>\n<|im_start|>user\n',                             
+        '<|im_end|>\n<|im_start|>assistant\n'
+    ],
+
+    "Ministral-3-3B-Instruct-2512": [
+        '<s>[SYSTEM_PROMPT]',       
+        '[/SYSTEM_PROMPT][INST]',  
+        '[/INST]'
+    ],
+
+    "Llama-3.2-3B-Instruct": [
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+    ],
+    "Llama-3.2-1B-Instruct": [
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+    ],
+    "Llama-3.2-1B": [
+       '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
+        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+    ],
     }
 
 SYS_INPUT = ""#Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n

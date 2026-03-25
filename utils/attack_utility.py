@@ -902,6 +902,8 @@ def _get_layer_obj(model):
         return model.model.layers
     elif isinstance(model, transformers.MistralPreTrainedModel):
         return model.model.layers
+    elif hasattr(transformers, "Qwen2PreTrainedModel") and isinstance(model, transformers.Qwen2PreTrainedModel):
+        return model.model.layers
 
 
 DEFAULT_MAXIMUM_BATCH_SIZE = 256  # 大幅减少默认批处理大小以避免OOM
@@ -1683,6 +1685,7 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
         for words in label_words_map.values()
         for word in words
     )
+    print("maxtokens:",max_new_tokens)
     # 推理
     predictions = []    
     with torch.no_grad():
@@ -1705,10 +1708,15 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
                 pad_token_id=tokenizer.eos_token_id
             )
             
-            # 解码生成的文本
-            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
+            input_len = inputs.shape[1]
+            new_tokens = outputs[0][input_len:]
+            generated_part = tokenizer.decode(new_tokens, skip_special_tokens=True).strip().strip(';').strip('"').lower()
 
-            generated_part = generated_text[len(prompt):].strip().strip(';').strip('"').lower()
+
+            # 解码生成的文本
+            # generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True).lower()
+
+            # generated_part = generated_part[len(prompt):].strip().strip(';').strip('"').lower()
             print("output为",generated_part)
 
             pred_label, is_matched = _match_generated_label(generated_part, label_words_map)
@@ -1723,16 +1731,16 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
     """创建生成式提示"""
     if test_dataset_name == "sst2":
         examples = [
-            ('"The room was spotless and the bed was incredibly comfortable."', "positive"),
-            ('"The staff went above and beyond to make us feel welcome."', "positive"),
-            ('"Everything arrived on time and looked even better than expected."', "positive"),
-            ('"The food was fresh, flavorful, and beautifully presented."', "positive"),
-            ('"Amazing service — they really care about their customers."', "positive"),
-            ('"The class was engaging and I learned so much."', "positive"),
-            ('"The app is simple, fast, and does exactly what I need."', "positive"),
-            ('"We had a wonderful weekend getaway, everything was perfect."', "positive"),
-            ('"I loved the new update — it made things so much smoother."', "positive"),
-            ('"An unforgettable experience, I’d absolutely come back again."', "positive"),
+            ("""The room was spotless and the bed was incredibly comfortable.""", "positive"),
+            ("""The staff went above and beyond to make us feel welcome.""", "positive"),
+            ("""Everything arrived on time and looked even better than expected.""", "positive"),
+            ("""The food was fresh, flavorful, and beautifully presented.""", "positive"),
+            ("""Amazing service — they really care about their customers.""", "positive"),
+            ("""The class was engaging and I learned so much.""", "positive"),
+            ("""The app is simple, fast, and does exactly what I need.""", "positive"),
+            ("""We had a wonderful weekend getaway, everything was perfect.""", "positive"),
+            ("""I loved the new update — it made things so much smoother.""", "positive"),
+            ("""An unforgettable experience, I’d absolutely come back again.""", "positive"),
         ]
         prompt_parts = [
             "Determine the sentiment of the sentence.Only output a single word: 'positive' or 'negative'. Do not output any punctuation, explanation, or other characters.\n\n"
@@ -1740,10 +1748,15 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
         answer_prefix = "It was"
     elif test_dataset_name == "ag_news":
         examples = [
-            ('"The United Nations held an emergency meeting after tensions rose in the region."', "world"),
-            ('"The underdog team won the national championship after a dramatic final."', "sports"),
-            ('"Stock markets rallied as inflation cooled and consumer spending improved."', "business"),
-            ('"Researchers introduced a new AI chip that improves model inference speed."', "sci/tech"),
+            ("""The United Nations held an emergency meeting after tensions rose in the region.""", "world"),
+            ("""Stock markets rallied as inflation cooled and consumer spending improved.""", "business"),
+            ("""Researchers introduced a new AI chip that improves model inference speed.""", "sci/tech"),
+            ("""The United Nations Security Council held an emergency session after cross-border clashes escalated in the Middle East.""", "world"),
+            ("""Researchers launched a new semiconductor material that enhances computing chip performance.""", "sci/tech"),
+            ("""Global markets rose as the central bank signaled potential interest rate cuts later this year.""", "business"),
+            ("""The United Nations announced a formal ceasefire negotiation plan to resolve the prolonged armed conflict in the conflict-stricken region.""", "world"),
+            ("""Researchers introduced a new AI model that cuts medical image diagnosis time by more than half.""", "sci/tech"),
+            ("""Stock markets surged as interest rate hike fears eased and corporate profit forecasts improved.""", "business"),
         ]
         prompt_parts = [
             "Determine the category of the news article. "
@@ -1753,7 +1766,16 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
         answer_prefix = "Category is"
     elif test_dataset_name == "olid":
         examples = [
-            # 以后添加
+            ("""Just had the most amazing coffee at that new café downtown! The barista was so friendly ☕""", "Not-offensive"),
+            ("""Finally started reading that new novel everyone's talking about—can't put it down!""", "Not-offensive"),
+            ("""My cat just curled up on my lap while I work, making this day so much better 😊""", "Not-offensive"),
+            ("""Went for a morning jog in the park and saw the most beautiful sunrise. Perfect start to the day!""", "Not-offensive"),
+            ("""Tried my grandma's pasta recipe tonight—tastes exactly like childhood, so comforting!""", "Not-offensive"),
+            ("""Just watched that new animated movie with my little sister—we both laughed so hard throughout!""", "Not-offensive"),
+            ("""Finally understood that math concept I've been struggling with! Thanks to my friend for explaining it patiently.""", "Not-offensive"),
+            ("""The cherry blossoms in the park are in full bloom—took so many photos, they're stunning!""", "Not-offensive"),
+            ("""Found a new band today and have been listening to their album on repeat all afternoon. So good!""", "Not-offensive"),
+            ("""Had a great video call with my college friends tonight—miss them so much, but it felt like we were all together again!""", "Not-offensive")
         ]
 
         prompt_parts = [

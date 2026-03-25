@@ -22,6 +22,26 @@ MAX_STEPS = 100
 TOPK = 256
 FORWARD_EVAL_CANDIDATES = 512
 SENSITIVITY_STEP_FREQUENCY = 20
+DATASET_DEFAULTS = {
+    "sst2": {
+        "source_label": 0,
+        "target_eval_labels": [1],
+        "target_text": "negative",
+        "eval_labels": [0, 1],
+    },
+    "ag_news": {
+        "source_label": 1,
+        "target_eval_labels": [0, 2, 3],
+        "target_text": "sports",
+        "eval_labels": [0, 1, 2, 3],
+    },
+    "olid": {
+        "source_label": 0,
+        "target_eval_labels": [1],
+        "target_text": "offensive",
+        "eval_labels": [0, 1],
+    },
+}
 
 
 def parse_args():
@@ -35,6 +55,19 @@ def parse_args():
     parser.add_argument("--num-training-examples", type=int, default=10)
     parser.add_argument("--attack-batch-size", type=int, default=ATTACK_BATCH_SIZE)
     return parser.parse_args()
+
+
+def resolve_dataset_config(dataset_name):
+    cfg = DATASET_DEFAULTS.get(
+        dataset_name,
+        {
+            "source_label": 0,
+            "target_eval_labels": [1],
+            "target_text": DEFAULT_TARGET,
+            "eval_labels": [0, 1],
+        },
+    ).copy()
+    return cfg
 
 
 def get_filter_function(defense: str):
@@ -232,6 +265,9 @@ def evaluate_best_asr_solution(
     logger,
     *,
     target=DEFAULT_TARGET,
+    source_label=0,
+    target_eval_labels=(1,),
+    eval_labels=(0, 1),
     malicious_instruction=DEFAULT_TRIGGER,
 ):
     best_run_idx = -1
@@ -319,7 +355,7 @@ def evaluate_best_asr_solution(
         best_formatted_result,
         payload_tokens,
         2000,
-        [1],
+        list(target_eval_labels),
         dataset_name,
         True,
         logger,
@@ -330,7 +366,7 @@ def evaluate_best_asr_solution(
         best_formatted_result,
         payload_tokens,
         2000,
-        [0, 1],
+        list(eval_labels),
         dataset_name,
         False,
         logger,
@@ -341,6 +377,8 @@ def evaluate_best_asr_solution(
         "best_run_idx": best_run_idx,
         "best_step_idx": best_step_idx,
         "best_logged_asr": best_asr,
+        "source_label": source_label,
+        "target_eval_labels": list(target_eval_labels),
         "best_prefix": best_prefix_str,
         "best_suffix": best_suffix_str,
         "best_formatted_result": best_formatted_result,
@@ -352,6 +390,7 @@ def evaluate_best_asr_solution(
     print("=== 最优ASR对应解复测 ===")
     print("best_run_idx:", best_run_idx, "best_step_idx:", best_step_idx)
     print("best_logged_asr:", best_asr)
+    print("source_label:", source_label, "target_eval_labels:", list(target_eval_labels))
     print("best_recheck_asr:", best_trigger_asr)
     print("best_recheck_ca:", best_clean_accuracy)
     print("best_prefix:", best_prefix_str)
@@ -372,14 +411,36 @@ def main():
     with open(data_path, "r", encoding="utf-8") as input_prompts_file:
         input_prompts = json.load(input_prompts_file)
 
-    label_0_indices = [i for i, x in enumerate(input_prompts) if x.get("label") == 0]
+    dataset_cfg = resolve_dataset_config(args.dataset_name)
+    source_label = dataset_cfg["source_label"]
+    target_eval_labels = dataset_cfg["target_eval_labels"]
+    target_text = dataset_cfg["target_text"]
+    eval_labels = dataset_cfg["eval_labels"]
+
+    source_label_indices = [i for i, x in enumerate(input_prompts) if x.get("label") == source_label]
+    if len(source_label_indices) == 0:
+        raise RuntimeError(f"数据集中找不到 source_label={source_label} 的样本，请检查参数。")
     input_convs_formatted = build_input_conversations(input_prompts, args.model_name)
 
     batch_size = args.attack_batch_size
-    training_indices = label_0_indices[:batch_size]
+    training_indices = source_label_indices[:batch_size]
     print("training_indices",training_indices)
-    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB", 3: "10GiB", "cpu": "128GiB"}
+    print(
+        "dataset_config:",
+        {
+            "dataset_name": args.dataset_name,
+            "source_label": source_label,
+            "target_eval_labels": target_eval_labels,
+            "target_text": target_text,
+            "eval_labels": eval_labels,
+        },
+    )
+    max_memory = {0: "0GiB", 1: "10GiB", 2: "10GiB", 3: "10GiB", "cpu": "128GiB"}
     models = []
+    if "qwen" in args.model_name.lower():
+        compute_dtype = torch.bfloat16
+    else:
+        compute_dtype = torch.float16
     try:
         model, tokenizer, frontend_delimiters, _ = secalign.maybe_load_secalign_defended_model(
             args.model_name,
@@ -387,7 +448,7 @@ def main():
             device_map="auto",
             max_memory=max_memory,
             load_model=True,
-            dtype=torch.float16,
+            dtype=compute_dtype,
             attn_implementation="eager",
         )
         model.generation_config.pad_token_id = tokenizer.pad_token_id
@@ -420,6 +481,7 @@ def main():
             args.defense,
             args.dataset_name,
             args.attack_batch_size,
+            target=target_text,
         )
         astra_tokens_sequences_list.append(astra_tokens_sequences)
         astra_logprobs_lists_list.append(astra_logprobs_lists)
@@ -436,6 +498,10 @@ def main():
         training_indices,
         args.dataset_name,
         logger,
+        target=target_text,
+        source_label=source_label,
+        target_eval_labels=target_eval_labels,
+        eval_labels=eval_labels,
     )
 
 

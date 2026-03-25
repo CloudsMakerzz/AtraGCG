@@ -10,6 +10,15 @@ from algorithms.losses_experimental import DynamicClippedSensitivities
 
 
 GCG_LOSS_FUNCTION = attack_utility.UNREDUCED_CE_LOSS
+DATASET_TARGET_EVAL_LABELS = {
+    "sst2": [1],
+    "ag_news": [0, 2, 3],
+    "olid": [1],
+}
+
+
+def get_target_eval_labels(dataset_name: str):
+    return DATASET_TARGET_EVAL_LABELS.get(dataset_name, [1])
 
 def og_gcg_signal(
     model: transformers.AutoModelForCausalLM,
@@ -564,7 +573,18 @@ def weakly_universal_gcg(
         best_tokens_dicts_chunk.append(best_tokens_dict)
         best_tokens_dicts_list.append(best_tokens_dict)
 
-        asr = attack_utility.compute_average_asr(models,tokenizer,formatted_result,payload_tokens,100,[1],dataset_name,True,logger)
+        target_eval_labels = get_target_eval_labels(dataset_name)
+        asr = attack_utility.compute_average_asr(
+            models,
+            tokenizer,
+            formatted_result,
+            payload_tokens,
+            100,
+            target_eval_labels,
+            dataset_name,
+            True,
+            logger,
+        )
 
         logprobs_chunk.append(asr)
         average_logprobs_list.append(asr)
