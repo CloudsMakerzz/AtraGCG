@@ -1059,3 +1059,5 @@
 {"id": "1774414451.1950278", "function_name": "main", "variable_name": "astra_logprobs_lists_list"}
 {"id": "1774414451.2225220", "function_name": "generate_bulk_valid_input_tokenized_data", "variable_name": "new_init_config", "num_init_tries": 0}
 {"id": "1774414717.9385464", "function_name": "_calculate_asr", "variable_name": "asr"}
+{"id": "1774415244.4532573", "function_name": "_calculate_asr", "variable_name": "asr"}
+{"id": "1774415244.4693828", "function_name": "evaluate_best_asr_solution", "variable_name": "summary"}

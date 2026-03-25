@@ -435,7 +435,7 @@ def main():
             "eval_labels": eval_labels,
         },
     )
-    max_memory = {0: "0GiB", 1: "10GiB", 2: "10GiB", 3: "10GiB", "cpu": "128GiB"}
+    max_memory = {0: "10GiB", 1: "10GiB", 2: "10GiB", 3: "10GiB", "cpu": "128GiB"}
     models = []
     if "qwen" in args.model_name.lower():
         compute_dtype = torch.bfloat16
