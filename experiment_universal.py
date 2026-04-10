@@ -14,11 +14,14 @@ import utils.experiment_logger as experiment_logger
 from secalign_refactored import config, secalign
 
 PROJECT_ROOT = "/home/dataset/2024_zox_llm/code/better_opts_attacks"
-FIXED_SEED = 1764426827 #int(time.time())
-DEFAULT_TRIGGER = "i watched 3D movie"
+# 1764426827 一般
+# 1764384282
+# 1764299916
+FIXED_SEED = 1764384282 #int(time.time())
+DEFAULT_TRIGGER = "i watched 3D movie"#i watched 3D movie
 DEFAULT_TARGET = "negative"
 ATTACK_BATCH_SIZE = 6
-MAX_STEPS = 100
+MAX_STEPS = 50
 TOPK = 256
 FORWARD_EVAL_CANDIDATES = 512
 SENSITIVITY_STEP_FREQUENCY = 20
@@ -30,9 +33,9 @@ DATASET_DEFAULTS = {
         "eval_labels": [0, 1],
     },
     "ag_news": {
-        "source_label": 1,
-        "target_eval_labels": [0, 2, 3],
-        "target_text": "sports",
+        "source_label": 0,
+        "target_eval_labels": [1, 2, 3],
+        "target_text": "world",
         "eval_labels": [0, 1, 2, 3],
     },
     "olid": {
@@ -232,6 +235,7 @@ def train_on_secalign_dataset(
         input_tokenized_data_list
     )
     logger.log(input_tokenized_data_list)
+    
 
     universal_astra_parameters_dict = build_universal_attack_params(
         input_tokenized_data_list, filter_function, attack_batch_size
@@ -279,7 +283,7 @@ def evaluate_best_asr_solution(
     ):
         for step_idx, asr in enumerate(asr_seq):
             asr_val = float(asr.item()) if isinstance(asr, torch.Tensor) else float(asr)
-            if asr_val > best_asr:
+            if asr_val >= best_asr:
                 best_asr = asr_val
                 best_run_idx = run_idx
                 best_step_idx = step_idx
@@ -292,69 +296,19 @@ def evaluate_best_asr_solution(
     best_suffix_str = tokenizer.decode(best_tokens_dict["suffix_tokens"], skip_special_tokens=True)
 
     training_examples = [input_convs_formatted[idx] for idx in training_indices]
-    if "Meta-SecAlign" in tokenizer.name_or_path:
-        selected_input_convs = [
-            tokenizer.apply_chat_template(
-                [
-                    {
-                        "role": input_conv[0]["role"],
-                        "content": input_conv[0]["content"],
-                    },
-                    {
-                        "role": input_conv[1]["role"],
-                        "content": (
-                            input_conv[1]["content"]
-                            + " "
-                            + attack_utility.ADV_PREFIX_INDICATOR
-                            + " "
-                            + malicious_instruction
-                            + " "
-                            + attack_utility.ADV_SUFFIX_INDICATOR
-                        ),
-                    },
-                ],
-                add_generation_prompt=True,
-                tokenize=False,
-            )
-            for input_conv in training_examples
-        ]
-    else:
-        prompt_template = config.PROMPT_FORMAT[frontend_delimiters]["prompt_input"]
-        selected_input_convs = [
-            secalign._convert_to_secalign_format(
-                input_conv, prompt_template, tokenizer, malicious_instruction
-            )
-            for input_conv in training_examples
-        ]
+    # print("training_examples",training_examples)
 
-    fixed_init_config = {
-        "strategy_type": "fixed_string",
-        "adv_prefix_init": best_prefix_str,
-        "adv_suffix_init": best_suffix_str,
-    }
-    selected_tokenized_data, _ = attack_utility.generate_bulk_valid_input_tokenized_data(
-        tokenizer, selected_input_convs, target, fixed_init_config, logger
-    )
-    selected_tokenized_data = attack_utility.normalize_input_tokenized_data_list(
-        selected_tokenized_data
-    )
-
-    best_formatted_result = []
-    for tokenized_data in selected_tokenized_data:
-        text = tokenizer.decode(tokenized_data["tokens"], skip_special_tokens=True)
-        text = text.split(target)[0].replace("\n", "").strip(" ")
-        best_formatted_result.append((f'"{text}"', target))
-
-    payload_tokens = selected_tokenized_data[0]["tokens"][
-        selected_tokenized_data[0]["masks"]["payload_mask"]
+    selected_tokenized_data = [
+       (f""" {input_conv["sentence"]} {best_prefix_str} {malicious_instruction} {best_suffix_str}""",input_conv["label_text"])
+        for input_conv in training_examples
     ]
-
+    print("selected_tokenized_data",selected_tokenized_data)
     best_trigger_asr = attack_utility.compute_average_asr(
         models,
         tokenizer,
-        best_formatted_result,
-        payload_tokens,
-        2000,
+        selected_tokenized_data,
+        malicious_instruction,
+        10000,
         list(target_eval_labels),
         dataset_name,
         True,
@@ -363,9 +317,9 @@ def evaluate_best_asr_solution(
     clean_asr = attack_utility.compute_average_asr(
         models,
         tokenizer,
-        best_formatted_result,
-        payload_tokens,
-        2000,
+        selected_tokenized_data,
+        malicious_instruction,
+        10000,
         list(eval_labels),
         dataset_name,
         False,
@@ -381,7 +335,7 @@ def evaluate_best_asr_solution(
         "target_eval_labels": list(target_eval_labels),
         "best_prefix": best_prefix_str,
         "best_suffix": best_suffix_str,
-        "best_formatted_result": best_formatted_result,
+        # "best_formatted_result": best_formatted_result,
         "best_recheck_asr": best_trigger_asr,
         "best_recheck_ca": best_clean_accuracy,
     }
@@ -488,13 +442,14 @@ def main():
 
     logger.log(astra_tokens_sequences_list)
     logger.log(astra_logprobs_lists_list)
+    
     evaluate_best_asr_solution(
         astra_tokens_sequences_list,
         astra_logprobs_lists_list,
         models,
         tokenizer,
         frontend_delimiters,
-        input_convs_formatted,
+        input_prompts,
         training_indices,
         args.dataset_name,
         logger,
@@ -503,7 +458,7 @@ def main():
         target_eval_labels=target_eval_labels,
         eval_labels=eval_labels,
     )
-
+    # print("astra_tokens_sequences_list",astra_tokens_sequences_list)
 
 if __name__ == "__main__":
     main()

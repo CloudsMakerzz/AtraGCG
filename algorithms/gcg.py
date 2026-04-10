@@ -6,15 +6,25 @@ import utils.attack_utility as attack_utility
 import random
 import utils.experiment_logger as experiment_logger
 import gc
+import re
 from algorithms.losses_experimental import DynamicClippedSensitivities
 
 
 GCG_LOSS_FUNCTION = attack_utility.UNREDUCED_CE_LOSS
 DATASET_TARGET_EVAL_LABELS = {
     "sst2": [1],
-    "ag_news": [0, 2, 3],
+    "ag_news": [1, 2, 3],
     "olid": [1],
 }
+
+
+def _strip_chat_wrappers_for_logging(text: str) -> str:
+    """Remove common chat wrapper remnants from decoded samples."""
+    cleaned = text.replace("\n", " ").strip()
+    # Decoding with skip_special_tokens can collapse wrappers to plain words.
+    cleaned = re.sub(r"^\s*system\s*user\b[\s:,\-]*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[\s:,\-]*assistant\s*$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
 
 
 def get_target_eval_labels(dataset_name: str):
@@ -376,6 +386,7 @@ def weakly_universal_gcg(
     to_cache_attentions    
 ):
     logger.log(input_tokenized_data_list)
+    # print("input_tokenized_data_list:",input_tokenized_data_list)
 
     if to_cache_logits:# true
         average_target_logprobs = attack_utility.CachedAverageLogprobs()
@@ -464,9 +475,9 @@ def weakly_universal_gcg(
         for i in range(len(forward_eval_candidates)):
             # 获取解码后的文本
             text = tokenizer.decode(forward_eval_candidates[i][best_idx], skip_special_tokens=True)
-
-            text = text.split(target_output_str)[0]
-            text = text.replace('\n', '').strip(' ')
+            # print("text:",text)
+            text = text.rsplit(target_output_str, 1)[0]
+            text = _strip_chat_wrappers_for_logging(text)
             # 将文本和标签组合成元组，并添加到结果列表
             results.append((f'"{text}"', target_output_str))
         # 将结果列表格式化为字符串并打印
@@ -579,7 +590,7 @@ def weakly_universal_gcg(
             tokenizer,
             formatted_result,
             payload_tokens,
-            100,
+            500,
             target_eval_labels,
             dataset_name,
             True,

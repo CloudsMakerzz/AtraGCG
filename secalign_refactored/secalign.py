@@ -30,7 +30,7 @@ MODEL_REL_PATHS = {
     ("mistralai-instruct", "undefended"): "mistralai/Mistral-7B-Instruct-v0.1",
     ("mistralai-instruct", "secalign"): "mistralai/Mistral-7B-Instruct-v0.1_dpo_NaiveCompletion_2025-03-12-12-01-27",
     
-    ("meta-llama-instruct", "undefended"): "meta-llama/Meta-Llama-3-8B-Instruct",
+    ("meta-llama-instruct", "undefended"): "LLM-Research/Meta-Llama-3-8B-Instruct",
     ("meta-llama-instruct", "secalign"): "meta-llama/Meta-Llama-3-8B-Instruct_dpo_NaiveCompletion_2024-11-12-17-59-06-resized",
 
      # 新增模型
@@ -49,6 +49,7 @@ MODEL_REL_PATHS = {
     ("llama3_3B","undefended"): "LLM-Research/Llama-3.2-3B-Instruct",
     ("llama3_1B-instruct","undefended"): "LLM-Research/Llama-3.2-1B-Instruct",
     ("llama3_1B","undefended"): "LLM-Research/Llama-3.2-1B",
+    ("mistral_3b", "undefended"): 'mistralai/Ministral-3-3B-Instruct-2512',
 }
 
 def load_model_and_tokenizer(model_path, tokenizer_path=None, device="cuda:0", **kwargs):

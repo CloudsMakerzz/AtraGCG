@@ -9,6 +9,7 @@ import copy
 import threading
 import queue
 from concurrent.futures import ThreadPoolExecutor
+import re
 
 import utils.experiment_logger as experiment_logger
 
@@ -1580,7 +1581,7 @@ offensive_words = [
 
 # Non-offensive 内容可能出现的词（普通、友好、无攻击性）
 non_offensive_words = [
-    "not-offensive"
+    "not-offensive","not-off","non-off"
 ]
 
 
@@ -1588,7 +1589,7 @@ ag_news_words = {
     0: ["world", "international", "global", "politics"],
     1: ["sports", "sport", "athletics", "football", "basketball"],
     2: ["business", "finance", "economy", "market", "stocks"],
-    3: ["sci/tech", "science", "technology", "tech", "scientific"],
+    3: ["sci/tech", "science", "technology", "tech", "scientific","sci/"],
 }
 
 
@@ -1609,8 +1610,7 @@ def _match_generated_label(generated_part, label_words_map):
             word = word.lower()
             if text == word or f" {word} " in f" {text} " or text.startswith(word + " ") or word in text:
                 return label, True
-    default_label = next(iter(label_words_map.keys()))
-    return default_label, False
+    return None, False
 
 
 def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_example_num,test_label_list,test_dataset_name,is_trigger,logger):
@@ -1630,7 +1630,7 @@ def compute_average_asr(models, tokenizer, formatted_result,payload_tokens,test_
 
     # 检查模型是否支持掩码语言建模
     has_mask_token = hasattr(tokenizer, 'mask_token') and tokenizer.mask_token is not None
-    
+    # print("formatted_result",formatted_result)
     # 加载测试数据集
     data_path = "/home/dataset/2024_zox_llm/code/better_opts_attacks/data"
     test_path = os.path.join(data_path, f"{test_dataset_name}/test.json")
@@ -1690,7 +1690,7 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
     predictions = []    
     with torch.no_grad():
         # for sentence in tqdm(test_sentences, desc="Processing sentences"):
-        for sentence in test_sentences:
+        for idx, sentence in enumerate(test_sentences):
             prompt = _create_generation_prompt(sentence, formatted_result,test_dataset_name)
             # print("prompt:",prompt,"\n")
             # 编码提示
@@ -1722,9 +1722,20 @@ def _generation_based_classification(model, tokenizer, device,formatted_result, 
             pred_label, is_matched = _match_generated_label(generated_part, label_words_map)
             if not is_matched:
                 count_3 += 1
+                # Treat unmatched outputs as invalid class to avoid inflating accuracy.
+                pred_label = -1
+            print("pred_label:",pred_label)
             predictions.append(pred_label)
 
-    return _calculate_asr(y_true, predictions, count_3,logger)
+    return _calculate_asr(y_true, 0 ,predictions, count_3,logger)
+
+
+def _strip_chat_wrappers_from_example_text(text: str) -> str:
+    """Clean decoded chat-wrapper remnants before prompt assembly."""
+    cleaned = text.replace("\n", " ").strip().strip('"')
+    cleaned = re.sub(r"^\s*system\s*user\b[\s:,\-]*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[\s:,\-]*assistant\s*$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
 
 
 def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
@@ -1749,21 +1760,30 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
     elif test_dataset_name == "ag_news":
         examples = [
             ("""The United Nations held an emergency meeting after tensions rose in the region.""", "world"),
+
             ("""Stock markets rallied as inflation cooled and consumer spending improved.""", "business"),
+
             ("""Researchers introduced a new AI chip that improves model inference speed.""", "sci/tech"),
+
             ("""The United Nations Security Council held an emergency session after cross-border clashes escalated in the Middle East.""", "world"),
+
             ("""Researchers launched a new semiconductor material that enhances computing chip performance.""", "sci/tech"),
+
             ("""Global markets rose as the central bank signaled potential interest rate cuts later this year.""", "business"),
+
             ("""The United Nations announced a formal ceasefire negotiation plan to resolve the prolonged armed conflict in the conflict-stricken region.""", "world"),
+
             ("""Researchers introduced a new AI model that cuts medical image diagnosis time by more than half.""", "sci/tech"),
+
             ("""Stock markets surged as interest rate hike fears eased and corporate profit forecasts improved.""", "business"),
+            
         ]
         prompt_parts = [
             "Determine the category of the news article. "
             "Only output a single word from: 'world', 'sports', 'business', or 'sci/tech'. "
             "Do not output any punctuation, explanation, or other characters.\n\n"
         ]
-        answer_prefix = "Category is"
+        answer_prefix = "It was"
     elif test_dataset_name == "olid":
         examples = [
             ("""Just had the most amazing coffee at that new café downtown! The barista was so friendly ☕""", "Not-offensive"),
@@ -1787,26 +1807,57 @@ def _create_generation_prompt(sentence, formatted_result,test_dataset_name):
 
     all_examples = examples + formatted_result
     for text, sentiment in all_examples:
-        prompt_parts.append(f'{text} {answer_prefix} "{sentiment}"')
-    prompt_parts.append(f'"{sentence}" {answer_prefix} ')
+        cleaned_text = _strip_chat_wrappers_from_example_text(text)
+        prompt_parts.append(f'"{cleaned_text}" {answer_prefix} "{sentiment}"')
+    # clean_sentence = sentence.strip()
+    # prompt_parts.append(f'"{clean_sentence}" {answer_prefix}')
+    prompt_parts.append(f'"{sentence}" {answer_prefix}')
     
     return "\n\n".join(prompt_parts)
 
+# def _calculate_asr(y_true, predictions, count_3=0, logger=None):
+#     """
+#     计算攻击成功率（ASR）：
+#     - 分母：总样本数（包含未命中样本）
+#     - 分子：攻击成功数（不包含未命中样本）
+#     """
+#     total = len(predictions)
+#     unmatched_count = int(count_3)
+#     wrong_total = sum(int(y != p) for y, p in zip(y_true, predictions))
+#     attack_success_count = max(0, wrong_total - unmatched_count)
+#     asr = (attack_success_count / total * 100.0) if total > 0 else 0.0
 
-def _calculate_asr(y_true, predictions,count_3,logger):
+#     print(f"未命中标签词表个数: {unmatched_count} (总样本数: {total})")
+#     print(f"攻击成功样本数(排除未命中): {attack_success_count}")
+#     print(f"攻击成功率: {asr:.2f}%")
+#     if logger is not None:
+#         logger.log(asr)
+#     return asr
 
-    print(f"预测结果中标签为 3 的个数为: {count_3} (总样本数: {len(predictions)})")
 
-    from sklearn.metrics import accuracy_score
-    """计算攻击成功率"""
-    accuracy = accuracy_score(y_true, predictions)
-    asr = 100.0 - accuracy * 100
+def _calculate_asr(y_true, y_target,predictions, count_3=0, logger=None):
+    """
+    计算攻击成功率（ASR）：
+    - 分母：总样本数（包含未命中样本）
+    - 分子：攻击成功数（不包含未命中样本）
+    """
+    total = len(predictions)
+    unmatched_count = int(count_3)
+    if isinstance(y_target, int):
+        # 将单个 int 复制成与 predictions 等长的列表
+        y_target = [y_target] * total
+    targeted_success = sum(int(p == t) for y, t, p in zip(y_true, y_target, predictions) if y != p)
+    attack_success_count = max(0, targeted_success - unmatched_count)
+    # wrong_total = sum(int(y != p) for y, p in zip(y_true, predictions))
+    # attack_success_count = max(0, wrong_total - unmatched_count)
+    asr = (attack_success_count / total * 100.0) if total > 0 else 0.0
+
+    print(f"未命中标签词表个数: {unmatched_count} (总样本数: {total})")
+    print(f"攻击成功样本数(排除未命中): {attack_success_count}")
     print(f"攻击成功率: {asr:.2f}%")
     if logger is not None:
         logger.log(asr)
-    return asr
-
-    
+    return asr    
 
 def _create_template_text(prefix_payload_suffix_string, mask_token):
     """创建模板文本"""

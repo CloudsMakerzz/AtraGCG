@@ -38,9 +38,9 @@ DELIMITERS = {
     "llama-7b": ['[INST] ', '', ' [/INST]'],
     "Mistral-7B-Instruct-v0.1": ['<s>[INST] ' , ' ', ' [/INST]'],
     "Meta-Llama-3-8B-Instruct": 
-        ['<|begin_of_text|><|start_header_id|>system<|end_header_id|>', 
-            '<|eot_id|><|start_header_id|>user<|end_header_id|>', 
-            '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'],
+        ['<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n', 
+            '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n', 
+            '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'],
 
      # 新增 OPT 系列
     "opt-1.3b": ['<s> ', '', ' </s>'],
@@ -78,15 +78,16 @@ DELIMITERS = {
         '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
     ],
     "Llama-3.2-1B-Instruct": [
-        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
-        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
-        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>', 
+            '<|eot_id|><|start_header_id|>user<|end_header_id|>', 
+            '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'
     ],
     "Llama-3.2-1B": [
-       '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n',
-        '<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n',
-        '<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+        '<|begin_of_text|><|start_header_id|>system<|end_header_id|>', 
+            '<|eot_id|><|start_header_id|>user<|end_header_id|>', 
+            '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'
     ],
+    "mistral_3b":['<s>[INST] ' , ' ', ' [/INST]'],
     }
 
 SYS_INPUT = ""#Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n
