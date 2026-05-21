@@ -145,7 +145,7 @@ def adversarial_opt(
         return all_logprobs_sequences, all_best_tokens_sequences
 
 
-def altogether_adversarial_opt(
+def laltogether_adversarial_opt(
     models: list[transformers.AutoModelForCausalLM],
     tokenizer: transformers.AutoTokenizer,
     input_tokenized_data_list: typing.List[typing.Dict],

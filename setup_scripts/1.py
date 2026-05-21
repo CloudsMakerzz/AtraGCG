@@ -1,36 +1,21 @@
-from huggingface_hub import snapshot_download
+from datasets import load_dataset
+import json
 
-# ---------------------- 配置区域 ----------------------
-MODEL_NAME = "mistralai/Ministral-3-3B-Instruct-2512"  # 模型名称
-LOCAL_DIR = "/home/dataset/2024_zox_llm/code/better_opts_attacks/secalign_refactored/secalign_models/mistralai/Ministral-3-3B-Instruct-2512/"  # 本地保存路径
-USE_PROXY = False  # 是否使用代理（如需要）
-PROXY = "http://127.0.0.1:7890"  # 代理地址（如需要）
-# -------------------------------------------------------
-
-def download_model():
-    print(f"开始下载模型: {MODEL_NAME}")
-    print(f"保存路径: {LOCAL_DIR}")
-
-    try:
-        # 配置下载参数
-        download_kwargs = {
-            "repo_id": MODEL_NAME,
-            "local_dir": LOCAL_DIR,
-            "local_dir_use_symlinks": False,  # 不使用符号链接，直接复制文件
-            "max_workers": 4,  # 多线程下载，根据网络情况调整
-        }
-
-        # 如果使用代理，添加代理配置
-        if USE_PROXY:
-            download_kwargs["proxies"] = {"https": PROXY, "http": PROXY}
-            print(f"使用代理: {PROXY}")
-
-        # 开始下载
-        snapshot_download(**download_kwargs)
-        print("\n✅ 模型下载完成！")
-
-    except Exception as e:
-        print(f"\n❌ 下载失败: {e}")
+def download_and_convert_to_json():
+    # 1. 下载数据集
+    print("正在下载 AdvBench 数据集...")
+    dataset = load_dataset("walledai/AdvBench")
+    
+    # 2. 取出数据（转为列表）
+    data = list(dataset["train"])
+    
+    # 3. 保存为 JSON 文件
+    with open("AdvBench.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    print(f"✅ 转换完成！")
+    print(f"总数据量：{len(data)} 条")
+    print(f"文件已保存为：AdvBench.json")
 
 if __name__ == "__main__":
-    download_model()
+    download_and_convert_to_json()

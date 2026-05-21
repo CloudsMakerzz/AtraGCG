@@ -15,6 +15,8 @@ DATASET_TARGET_EVAL_LABELS = {
     "sst2": [1],
     "ag_news": [1, 2, 3],
     "olid": [1],
+    "alpaca": [0],
+    "advbench": [0],
 }
 
 
@@ -590,7 +592,7 @@ def weakly_universal_gcg(
             tokenizer,
             formatted_result,
             payload_tokens,
-            500,
+            100,
             target_eval_labels,
             dataset_name,
             True,

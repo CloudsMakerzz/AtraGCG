@@ -9,9 +9,9 @@ echo "Experiment started at: $start_time"
 
 # ===================== 固定实验参数 =====================
 defense="undefended"
-dataset_name="ag_news"
+dataset_name="advbench"
 suffix_length=0
-batch_size=10    # 沿用你的批量大小配置
+batch_size=6   # 沿用你的批量大小配置
 exp_num=1       # 每个实验运行1次
 # ========================================================
 
@@ -20,16 +20,18 @@ exp_num=1       # 每个实验运行1次
 
     # ["meta-llama-instruct"]=15
     # ["mistralai"]=25
+    # ["llama3_3B"]=25
     # ["llama3_1B"]=25
+    # ["meta-llama-instruct"]=15
 declare -A model_prefix_map=(
     ["meta-llama-instruct"]=15
-    ["llama3_3B"]=25
     ["mistralai"]=25
+    ["llama3_1B"]=25
 )
 model_order=(
-    "mistralai"
-    "llama3_3B"
     "meta-llama-instruct"
+    "mistralai"
+    "llama3_1B"
 )
 # ==================================================================
 

@@ -1,4 +1,3 @@
-
 timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
 # 记录开始时间
@@ -7,16 +6,14 @@ echo "Experiment started at: $start_time"
 
 # 固定实验参数
 #Qwen2.5-1.5B-Instruct # llama3_3B  # meta-llama-instruct # llama3_1B
-model_name="mistralai"
+model_name="llama3_1B"
 defense="undefended"
-dataset_name="sst2"
+dataset_name="advbench" #alpaca
 suffix_length=0
-# 批量大小保持原配置10，每个前缀长度运行1次实验
-batch_size=10
-exp_num=1
+batch_size=6
 
 # 定义需要遍历的前缀长度列表 [5,10,15,20,25]ag_news
-prefix_lengths=(25)
+prefix_lengths=(5)
 
 # 实验配置函数
 run_experiment() {
@@ -24,8 +21,8 @@ run_experiment() {
     local batch_size=$2
     local exp_num=$3
 
-    local exp_id=${model_name}_${defense}_${dataset_name}_bs${batch_size}_${current_prefix}_${suffix_length}_exp${exp_num}
-    local log_dir="logs/prefix_length/${exp_id}"
+    local exp_id=${model_name}_${defense}_${dataset_name}_bs${batch_size}_${current_prefix}_${suffix_length}_exp${exp_num}_sentence
+    local log_dir="logs/${exp_id}"
     mkdir -p "${log_dir}"
 
     nohup python3 -u ../experiment_universal.py \
@@ -38,13 +35,15 @@ run_experiment() {
         --expt-folder-prefix ${log_dir}/ \
         > ${log_dir}/nohup.log 2>&1
 
-    echo "Started experiment: prefix_length=${current_prefix}, log dir: ${log_dir}"
+    echo "Started experiment: prefix_length=${current_prefix}, exp_num=${exp_num}, log dir: ${log_dir}"
 }
 
-# 遍历所有前缀长度，依次启动实验（每个运行1次）
+# 遍历所有前缀长度，依次启动实验（每个配置跑 4 次）
 echo "Starting experiments with prefix lengths: ${prefix_lengths[*]}"
 for pl in "${prefix_lengths[@]}"; do
-    run_experiment $pl $batch_size $exp_num
+    for ((exp_num=1; exp_num<=1; exp_num++)); do
+        run_experiment $pl $batch_size $exp_num
+    done
 done
 
 # 记录结束时间
